@@ -841,7 +841,7 @@ function ChartCard({ chart, colorIdx }: { chart: ChartPanel; colorIdx: number })
     plugins: {
       legend: {
         labels: { color: "#94a3b8", font: { family: "Inter", size: 10 } },
-        position: (chartType === "doughnut" ? "bottom" : "top") as const,
+        position: chartType === "doughnut" ? "bottom" : "top",
       },
     },
     scales:
