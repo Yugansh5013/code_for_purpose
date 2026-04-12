@@ -84,6 +84,39 @@ export interface ChartData {
   y_label?: string;
 }
 
+export interface ChartPanel {
+  title: string;
+  chart_type: string;
+  data: Record<string, unknown>[];
+  columns: string[];
+  sql?: string;
+  row_count: number;
+  confidence_score: number;
+  confidence_tier: string;
+}
+
+export interface RagDocument {
+  title: string;
+  space: string;
+  excerpt: string;
+  relevance: number;
+  source_type?: string;
+}
+
+export interface WebResult {
+  title: string;
+  url: string;
+  content: string;
+  score: number;
+}
+
+export interface SalesforceRecord {
+  account_name: string;
+  object_type: string;
+  excerpt: string;
+  relevance: number;
+}
+
 export interface StatUpdate {
   label: string;
   value: string;
@@ -106,6 +139,10 @@ export interface AnswerPayload {
   sources: SourceChip[];
   transparency: TransparencyPayload;
   chart_data?: ChartData;
+  charts?: ChartPanel[];
+  rag_documents?: RagDocument[];
+  web_results?: WebResult[];
+  salesforce_records?: SalesforceRecord[];
   stat_updates?: StatUpdate[];
 }
 
@@ -183,6 +220,14 @@ export interface OmniDataStore {
   setIntegrationStatus: (s: IntegrationStatus) => void;
   activeNav: ActiveNav;
   setActiveNav: (n: ActiveNav) => void;
+  chartPanels: ChartPanel[];
+  setChartPanels: (p: ChartPanel[]) => void;
+  ragDocuments: RagDocument[];
+  setRagDocuments: (d: RagDocument[]) => void;
+  webResults: WebResult[];
+  setWebResults: (w: WebResult[]) => void;
+  salesforceRecords: SalesforceRecord[];
+  setSalesforceRecords: (r: SalesforceRecord[]) => void;
 }
 
 export interface BranchColour {

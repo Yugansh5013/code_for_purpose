@@ -24,6 +24,10 @@ export function useChatSubmit() {
     (state) => state.setActiveChartData
   );
   const setActiveStats = useOmniDataStore((state) => state.setActiveStats);
+  const setChartPanels = useOmniDataStore((state) => state.setChartPanels);
+  const setRagDocuments = useOmniDataStore((state) => state.setRagDocuments);
+  const setWebResults = useOmniDataStore((state) => state.setWebResults);
+  const setSalesforceRecords = useOmniDataStore((state) => state.setSalesforceRecords);
 
   const applyResponse = useCallback(
     (response: ChatResponse) => {
@@ -46,6 +50,18 @@ export function useChatSubmit() {
           setActiveStats(response.answer.stat_updates);
         }
 
+        // Store multi-chart panels
+        setChartPanels(response.answer.charts ?? []);
+
+        // Store RAG documents
+        setRagDocuments(response.answer.rag_documents ?? []);
+
+        // Store web results
+        setWebResults(response.answer.web_results ?? []);
+
+        // Store Salesforce records
+        setSalesforceRecords(response.answer.salesforce_records ?? []);
+
         return;
       }
 
@@ -57,7 +73,7 @@ export function useChatSubmit() {
         timestamp: new Date()
       });
     },
-    [addMessage, setActiveChartData, setActiveStats, setActiveTransparency]
+    [addMessage, setActiveChartData, setActiveStats, setActiveTransparency, setChartPanels, setRagDocuments, setWebResults, setSalesforceRecords]
   );
 
   const submitChat = useCallback(

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { IntegrationStatus, OmniDataStore, StatUpdate } from "./types";
+import type { ChartPanel, IntegrationStatus, OmniDataStore, RagDocument, SalesforceRecord, StatUpdate, WebResult } from "./types";
 
 export const DEFAULT_INTEGRATION_STATUS: IntegrationStatus = {
   snowflake: "live",
@@ -69,7 +69,11 @@ export const useOmniDataStore = create<OmniDataStore>()((set) => ({
       messages: [],
       activeTransparency: null,
       activeChartData: null,
-      activeStats: []
+      activeStats: [],
+      chartPanels: [],
+      ragDocuments: [],
+      webResults: [],
+      salesforceRecords: [],
     }),
 
   messages: [],
@@ -95,5 +99,17 @@ export const useOmniDataStore = create<OmniDataStore>()((set) => ({
   setIntegrationStatus: (s) => set({ integrationStatus: s }),
 
   activeNav: "chat",
-  setActiveNav: (n) => set({ activeNav: n })
+  setActiveNav: (n) => set({ activeNav: n }),
+
+  chartPanels: [],
+  setChartPanels: (p) => set({ chartPanels: p }),
+
+  ragDocuments: [],
+  setRagDocuments: (d) => set({ ragDocuments: d }),
+
+  webResults: [],
+  setWebResults: (w) => set({ webResults: w }),
+
+  salesforceRecords: [],
+  setSalesforceRecords: (r) => set({ salesforceRecords: r }),
 }));

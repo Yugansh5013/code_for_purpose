@@ -176,7 +176,7 @@ def route_after_clarification(state: GraphState) -> str:
     if state.get("clarification_needed"):
         return "needs_clarification"
     
-    branches = state.get("branches", ["sql"])
+    branches = state.get("branches") or ["sql"]
     has_sql = "sql" in branches or state.get("sql_likely", False)
     has_rag = "rag_confluence" in branches or state.get("rag_present", False)
     has_salesforce = "rag_salesforce" in branches or state.get("salesforce_needed", False)
@@ -203,7 +203,7 @@ def route_after_clarification(state: GraphState) -> str:
 
 def _route_after_sql(state: GraphState) -> str:
     """After SQL branch, check if Salesforce, RAG, or Web is also needed."""
-    branches = state.get("branches", [])
+    branches = state.get("branches") or []
     has_salesforce = "rag_salesforce" in branches or state.get("salesforce_needed", False)
     has_rag = "rag_confluence" in branches or state.get("rag_present", False)
     has_web = "web" in branches or state.get("web_needed", False)
@@ -220,7 +220,7 @@ def _route_after_sql(state: GraphState) -> str:
 
 def _route_after_salesforce(state: GraphState) -> str:
     """After Salesforce branch, check if RAG or Web is also needed."""
-    branches = state.get("branches", [])
+    branches = state.get("branches") or []
     has_rag = "rag_confluence" in branches or state.get("rag_present", False)
     has_web = "web" in branches or state.get("web_needed", False)
     
@@ -233,7 +233,7 @@ def _route_after_salesforce(state: GraphState) -> str:
 
 def _route_after_rag(state: GraphState) -> str:
     """After RAG branch, check if Web is also needed."""
-    branches = state.get("branches", [])
+    branches = state.get("branches") or []
     has_web = "web" in branches or state.get("web_needed", False)
     
     if has_web:

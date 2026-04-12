@@ -76,10 +76,10 @@ async def intent_router_node(state: GraphState, groq_pool: Any) -> dict:
         logger.info(f"Intent Router: branches={result.get('branches', [])} | reasoning={result.get('reasoning', '')}")
         
         return {
-            "branches": result.get("branches", ["sql"]),
+            "branches": result.get("branches") or ["sql"],
             "sql_likely": result.get("sql_likely", True),
             "rag_present": result.get("rag_present", False),
-            "rag_sources": result.get("rag_sources", []),
+            "rag_sources": result.get("rag_sources") or [],
             "salesforce_needed": result.get("salesforce_needed", False),
             "web_needed": result.get("web_needed", False),
         }

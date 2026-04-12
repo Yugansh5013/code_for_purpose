@@ -23,6 +23,7 @@ from src.connectors.confluence_client import ConfluenceClient
 from src.connectors.salesforce_connector import SalesforceConnector
 from src.clarification.metric_resolver import get_all_metrics_for_glossary
 from src.graph import build_graph
+from src.api.frontend_adapter import create_adapter_routes
 
 # Configure logging
 logging.basicConfig(
@@ -99,6 +100,10 @@ async def lifespan(app: FastAPI):
         tavily_api_key=settings.tavily_api_key,
         salesforce_connector=_salesforce,
     )
+    
+    # Mount frontend adapter routes (/api/chat, /api/status, /api/metrics)
+    frontend_router = create_adapter_routes(graph=_graph, groq_pool=_groq_pool)
+    app.include_router(frontend_router)
     
     logger.info("OmniData backend ready!")
     
