@@ -1,0 +1,31 @@
+PRODUCT_SKU,PRODUCT_NAME,PRODUCT_CATEGORY,LAUNCH_DATE,RRP_GBP,CHANNEL_AVAILABILITY,IS_ACTIVE
+AURA-HP-001,AuraSound Pro Headphones,Electronics,2026-01-08,149.99,All,True
+AURA-HP-002,AuraSound Lite Headphones,Electronics,2024-03-01,79.99,All,True
+AURA-SPK-001,AuraBoom Portable Speaker,Electronics,2024-06-15,89.99,All,True
+AURA-CBL-001,AuraConnect USB-C Cable 2m,Cables,2023-01-01,12.99,All,True
+AURA-ACC-001,AuraCase Pro Carry Case,Accessories,2024-09-01,34.99,All,True
+AURA-HP-003,AuraSound Studio Monitor,Electronics,2024-01-15,199.99,All,True
+AURA-HP-004,AuraSound Kids Headphones,Electronics,2024-07-01,39.99,All,True
+AURA-SPK-002,AuraBoom Mini Speaker,Electronics,2024-09-01,49.99,All,True
+AURA-SPK-003,AuraBoom Max Soundbar,Electronics,2025-02-01,179.99,All,True
+AURA-SPK-004,AuraBoom Party Speaker,Electronics,2025-06-01,129.99,All,True
+AURA-CBL-002,AuraConnect Lightning Cable 1m,Cables,2023-03-01,9.99,All,True
+AURA-CBL-003,AuraConnect HDMI Cable 3m,Cables,2023-06-01,14.99,All,True
+AURA-CBL-004,AuraConnect USB-A to C Adapter,Cables,2023-09-01,7.99,All,True
+AURA-CBL-005,AuraConnect Ethernet Cable 5m,Cables,2024-01-01,11.99,All,True
+AURA-CBL-006,AuraConnect Display Port Cable 2m,Cables,2024-04-01,13.99,All,True
+AURA-ACC-002,AuraCase Lite Carry Pouch,Accessories,2024-03-01,19.99,All,True
+AURA-ACC-003,AuraStand Pro Headphone Stand,Accessories,2024-06-01,29.99,All,True
+AURA-ACC-004,AuraPad Wireless Charging Pad,Accessories,2024-11-01,24.99,All,True
+AURA-ACC-005,AuraClean Screen Cleaning Kit,Accessories,2023-05-01,8.99,All,True
+AURA-ACC-006,AuraWrap Cable Organiser,Accessories,2023-08-01,6.99,All,True
+AURA-ACC-007,AuraGrip Phone Mount,Accessories,2024-02-01,15.99,All,True
+AURA-ACC-008,AuraShield Screen Protector Pack,Accessories,2024-05-01,12.99,All,True
+AURA-HP-005,AuraSound Sport Earbuds,Electronics,2025-03-01,69.99,All,True
+AURA-HP-006,AuraSound Noise Cancel Pro,Electronics,2025-08-01,229.99,All,True
+AURA-SPK-005,AuraBoom Travel Speaker,Electronics,2025-04-01,59.99,All,True
+AURA-ACC-009,AuraMount TV Wall Bracket,Accessories,2025-01-01,44.99,All,True
+AURA-CBL-007,AuraConnect USB-C Hub 7-in-1,Cables,2025-05-01,39.99,All,True
+AURA-ACC-010,AuraTag Bluetooth Tracker 4-Pack,Accessories,2025-07-01,54.99,All,True
+AURA-HP-007,AuraSound Sleep Buds,Electronics,2025-09-01,99.99,All,True
+AURA-SPK-006,AuraBoom Outdoor Rugged Speaker,Electronics,2025-10-01,109.99,All,True

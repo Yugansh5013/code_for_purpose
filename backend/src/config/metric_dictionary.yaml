@@ -1,0 +1,218 @@
+# ============================================================
+# OmniData — Metric Dictionary
+# ============================================================
+# Loaded at startup. Used by:
+#   - Node 1 (Clarification) for alias matching
+#   - Node 2 (Synthesis) for jargon stripping
+#   - Node 3 (Semantic Validator) for substitution audit
+#   - GET /metrics endpoint for frontend Glossary
+# ============================================================
+
+metrics:
+
+  revenue:
+    display_name: "Total Sales"
+    aliases:
+      - "money"
+      - "income"
+      - "earnings"
+      - "sales"
+      - "turnover"
+      - "how much we made"
+      - "financials"
+      - "revenue"
+    canonical_column: "ACTUAL_SALES"
+    table: "OMNIDATA_DB.SALES.AURA_SALES"
+    unit: "GBP"
+    description: "Total transaction value in GBP before returns."
+    ambiguous: false
+    jargon_terms:
+      - "ACTUAL_SALES"
+      - "actual_sales"
+
+  net_revenue:
+    display_name: "Net Revenue"
+    aliases:
+      - "net sales"
+      - "revenue after returns"
+      - "net income"
+    description: "Total Sales minus total refunds in the same period."
+    ambiguous: false
+    jargon_terms: []
+
+  performance:
+    display_name: null
+    aliases:
+      - "results"
+      - "numbers"
+      - "how we did"
+      - "metrics"
+      - "kpis"
+      - "performance"
+    resolves_to:
+      - "revenue"
+      - "units_sold"
+      - "churn"
+    ambiguous: true
+    clarification_prompt: >
+      Which metric for 'performance'?
+      Options: Total Sales (GBP), Units Sold, or Customer Churn Rate.
+
+  churn:
+    display_name: "Customer Churn Rate"
+    aliases:
+      - "lost customers"
+      - "customer loss"
+      - "attrition"
+      - "drop-off"
+      - "cancellations"
+      - "churn"
+    canonical_column: "CHURN_RATE"
+    table: "OMNIDATA_DB.CUSTOMERS.CUSTOMER_METRICS"
+    unit: "percentage"
+    description: "Percentage of customers from the prior month who did not make a purchase in the current month."
+    ambiguous: false
+    jargon_terms:
+      - "CHURN_RATE"
+      - "churn_rate"
+      - "CHURNED_CUSTOMER_COUNT"
+      - "ChurnRisk__c"
+
+  active_customers:
+    display_name: "Active Customers"
+    aliases:
+      - "active customers"
+      - "engaged users"
+      - "active users"
+      - "customers this month"
+      - "buying customers"
+    canonical_column: "ACTIVE_CUSTOMER_COUNT"
+    table: "OMNIDATA_DB.CUSTOMERS.CUSTOMER_METRICS"
+    unit: "count"
+    description: "Customers who made at least one purchase in the period."
+    ambiguous: false
+    jargon_terms:
+      - "ACTIVE_CUSTOMER_COUNT"
+      - "IS_ACTIVE"
+      - "active_customer_count"
+
+  return_rate:
+    display_name: "Return Rate"
+    aliases:
+      - "returns"
+      - "product returns"
+      - "refunds rate"
+      - "return percentage"
+      - "how many came back"
+    canonical_column: "RETURN_RATE"
+    table: "OMNIDATA_DB.RETURNS.RETURN_EVENTS"
+    unit: "percentage"
+    description: "Percentage of units sold that were subsequently returned."
+    ambiguous: false
+    jargon_terms:
+      - "RETURN_RATE"
+      - "return_rate"
+      - "RETURN_EVENTS"
+
+  pipeline_value:
+    display_name: "Sales Pipeline Value"
+    aliases:
+      - "deals"
+      - "opportunities"
+      - "sales pipeline"
+      - "potential revenue"
+      - "open deals"
+      - "pipeline"
+    canonical_object: "Opportunity"
+    salesforce_field: "Amount"
+    source: "salesforce"
+    unit: "GBP"
+    description: "Total value of open Salesforce deals not yet marked as won or lost."
+    ambiguous: false
+    jargon_terms:
+      - "Opportunity"
+      - "Amount"
+      - "StageName"
+      - "Closed Won"
+      - "Closed Lost"
+      - "OpportunityId"
+
+  units_sold:
+    display_name: "Units Sold"
+    aliases:
+      - "units"
+      - "volume"
+      - "how many sold"
+      - "quantity sold"
+      - "number sold"
+    canonical_column: "UNITS_SOLD"
+    table: "OMNIDATA_DB.SALES.AURA_SALES"
+    unit: "count"
+    description: "Number of individual product units sold in the period."
+    ambiguous: false
+    jargon_terms:
+      - "UNITS_SOLD"
+      - "units_sold"
+
+  ad_roi:
+    display_name: "Advertising ROI"
+    aliases:
+      - "marketing roi"
+      - "ad effectiveness"
+      - "return on ad spend"
+      - "roas"
+      - "marketing return"
+    description: "Revenue generated per pound of advertising spend."
+    ambiguous: false
+    jargon_terms:
+      - "AD_SPEND"
+      - "ad_spend"
+
+  discount_rate:
+    display_name: "Discount Rate"
+    aliases:
+      - "discounts"
+      - "discount percentage"
+      - "price reduction"
+      - "markdown"
+    canonical_column: "DISCOUNT_RATE"
+    table: "OMNIDATA_DB.SALES.AURA_SALES"
+    unit: "percentage"
+    description: "Percentage discount applied to the transaction."
+    ambiguous: false
+    jargon_terms:
+      - "DISCOUNT_RATE"
+      - "discount_rate"
+
+  ad_spend:
+    display_name: "Ad Spend"
+    aliases:
+      - "advertising spend"
+      - "marketing spend"
+      - "ad budget"
+      - "marketing budget"
+      - "how much we spent on ads"
+    canonical_column: "AD_SPEND"
+    table: "OMNIDATA_DB.SALES.AURA_SALES"
+    unit: "GBP"
+    description: "Marketing spend attributed to the transaction in GBP."
+    ambiguous: false
+    jargon_terms:
+      - "AD_SPEND"
+      - "ad_spend"
+
+  repeat_purchase_rate:
+    display_name: "Repeat Purchase Rate"
+    aliases:
+      - "repeat buyers"
+      - "returning customers"
+      - "loyalty rate"
+      - "repeat rate"
+    canonical_column: "REPEAT_PURCHASE_RATE"
+    table: "OMNIDATA_DB.CUSTOMERS.CUSTOMER_METRICS"
+    unit: "percentage"
+    description: "Proportion of customers with two or more purchases in the period."
+    ambiguous: false
+    jargon_terms:
+      - "REPEAT_PURCHASE_RATE"
+      - "repeat_purchase_rate"

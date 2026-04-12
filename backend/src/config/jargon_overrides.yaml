@@ -1,0 +1,224 @@
+# ============================================================
+# OmniData — Jargon Overrides (User-Defined)
+# ============================================================
+# Custom terms that should be rewritten in final responses.
+# Users can add entries via POST /jargon endpoint or edit this file.
+#
+# Format:
+#   - term: "TECHNICAL_TERM"         # What to find (case-sensitive)
+#     replacement: "Human Friendly"  # What to replace it with
+#     category: "snowflake"          # Optional: snowflake, salesforce, internal
+#
+# These are MERGED with the auto-generated jargon map from
+# the Metric Dictionary at runtime.
+# ============================================================
+
+overrides:
+  # ── Snowflake Table Names ────────────────────────────────
+  - term: "OMNIDATA_DB.SALES.AURA_SALES"
+    replacement: "the sales database"
+    category: "snowflake"
+
+  - term: "OMNIDATA_DB.PRODUCTS.PRODUCT_CATALOGUE"
+    replacement: "the product catalogue"
+    category: "snowflake"
+
+  - term: "OMNIDATA_DB.RETURNS.RETURN_EVENTS"
+    replacement: "the returns database"
+    category: "snowflake"
+
+  - term: "OMNIDATA_DB.CUSTOMERS.CUSTOMER_METRICS"
+    replacement: "the customer metrics database"
+    category: "snowflake"
+
+  - term: "AURA_SALES"
+    replacement: "sales records"
+    category: "snowflake"
+
+  - term: "PRODUCT_CATALOGUE"
+    replacement: "product catalogue"
+    category: "snowflake"
+
+  - term: "RETURN_EVENTS"
+    replacement: "return records"
+    category: "snowflake"
+
+  - term: "CUSTOMER_METRICS"
+    replacement: "customer metrics"
+    category: "snowflake"
+
+  # ── Snowflake Column Names ──────────────────────────────
+  - term: "GEO_TERRITORY"
+    replacement: "region"
+    category: "snowflake"
+
+  - term: "SALE_DATE"
+    replacement: "date"
+    category: "snowflake"
+
+  - term: "PRODUCT_SKU"
+    replacement: "product code"
+    category: "snowflake"
+
+  - term: "PRODUCT_CATEGORY"
+    replacement: "product category"
+    category: "snowflake"
+
+  - term: "ACTUAL_SALES"
+    replacement: "total sales"
+    category: "snowflake"
+
+  - term: "UNITS_SOLD"
+    replacement: "units sold"
+    category: "snowflake"
+
+  - term: "AD_SPEND"
+    replacement: "advertising spend"
+    category: "snowflake"
+
+  - term: "DISCOUNT_RATE"
+    replacement: "discount rate"
+    category: "snowflake"
+
+  - term: "SALE_ID"
+    replacement: "transaction ID"
+    category: "snowflake"
+
+  - term: "METRIC_MONTH"
+    replacement: "month"
+    category: "snowflake"
+
+  - term: "ACTIVE_CUSTOMER_COUNT"
+    replacement: "active customers"
+    category: "snowflake"
+
+  - term: "NEW_CUSTOMER_COUNT"
+    replacement: "new customers"
+    category: "snowflake"
+
+  - term: "CHURNED_CUSTOMER_COUNT"
+    replacement: "lost customers"
+    category: "snowflake"
+
+  - term: "CHURN_RATE"
+    replacement: "churn rate"
+    category: "snowflake"
+
+  - term: "AVG_ORDER_VALUE"
+    replacement: "average order value"
+    category: "snowflake"
+
+  - term: "REPEAT_PURCHASE_RATE"
+    replacement: "repeat purchase rate"
+    category: "snowflake"
+
+  - term: "RETURN_RATE"
+    replacement: "return rate"
+    category: "snowflake"
+
+  - term: "REFUND_AMOUNT"
+    replacement: "refund amount"
+    category: "snowflake"
+
+  - term: "RETURN_REASON"
+    replacement: "return reason"
+    category: "snowflake"
+
+  - term: "RRP_GBP"
+    replacement: "retail price"
+    category: "snowflake"
+
+  - term: "CUSTOMER_SEGMENT"
+    replacement: "customer segment"
+    category: "snowflake"
+
+  # ── Salesforce API Fields ───────────────────────────────
+  - term: "ChurnRisk__c"
+    replacement: "Churn Risk Score"
+    category: "salesforce"
+
+  - term: "Region__c"
+    replacement: "Region"
+    category: "salesforce"
+
+  - term: "CustomerSegment__c"
+    replacement: "Customer Segment"
+    category: "salesforce"
+
+  - term: "LastPurchaseDate__c"
+    replacement: "Last Purchase Date"
+    category: "salesforce"
+
+  - term: "AnnualContractValue__c"
+    replacement: "Annual Contract Value"
+    category: "salesforce"
+
+  - term: "PartnerTier__c"
+    replacement: "Partner Tier"
+    category: "salesforce"
+
+  - term: "ProductSKU__c"
+    replacement: "Product"
+    category: "salesforce"
+
+  - term: "StageName"
+    replacement: "deal stage"
+    category: "salesforce"
+
+  - term: "CloseDate"
+    replacement: "expected close date"
+    category: "salesforce"
+
+  - term: "AccountId"
+    replacement: "account"
+    category: "salesforce"
+
+  - term: "OpportunityId"
+    replacement: "deal"
+    category: "salesforce"
+
+  # ── SQL Keywords (when used as nouns) ────────────────────
+  - term: "SELECT"
+    replacement: "query result"
+    category: "sql"
+
+  - term: "GROUP BY"
+    replacement: "grouped by"
+    category: "sql"
+
+  - term: "ORDER BY"
+    replacement: "sorted by"
+    category: "sql"
+
+  - term: "WHERE"
+    replacement: "filtered for"
+    category: "sql"
+
+  # ── Business Acronyms ──────────────────────────────────
+  - term: "ACV"
+    replacement: "Annual Contract Value"
+    category: "internal"
+
+  - term: "MRR"
+    replacement: "Monthly Recurring Revenue"
+    category: "internal"
+
+  - term: "CSAT"
+    replacement: "Customer Satisfaction Score"
+    category: "internal"
+
+  - term: "NPS"
+    replacement: "Net Promoter Score"
+    category: "internal"
+
+  - term: "YoY"
+    replacement: "Year over Year"
+    category: "internal"
+
+  - term: "MoM"
+    replacement: "Month over Month"
+    category: "internal"
+
+  - term: "QoQ"
+    replacement: "Quarter over Quarter"
+    category: "internal"
