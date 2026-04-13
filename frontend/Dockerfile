@@ -21,7 +21,10 @@ COPY . .
 # Uncomment the following line in case you want to disable telemetry during the build.
 ENV NEXT_TELEMETRY_DISABLED 1
 
-# If NEXT_PUBLIC_API_URL is needed at build time, it should be provided via Cloud Build
+# NEXT_PUBLIC_* vars must be set BEFORE build — they are baked into the JS bundle at compile time.
+# Cloud Run runtime env vars do NOT work for NEXT_PUBLIC_ prefixed variables.
+ENV NEXT_PUBLIC_API_URL=https://code-for-purpose-635515199846.europe-west1.run.app
+
 RUN npm run build
 
 # Production image, copy all the files and run next
