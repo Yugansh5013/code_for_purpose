@@ -138,6 +138,101 @@ class SnowflakeConnector:
             logger.error(f"Connection test failed: {e}")
             return False
 
+    # ── Metric Dictionary & Jargon Override Methods ──────────
+
+    def fetch_metric_dictionary(self) -> dict[str, dict]:
+        """
+        Read column-level JSON COMMENTs from INFORMATION_SCHEMA.
+        Returns a dict keyed by COLUMN_NAME with parsed metadata.
+        """
+        import json as _json
+
+        sql = """
+            SELECT TABLE_NAME, COLUMN_NAME, COMMENT
+            FROM OMNIDATA_DB.INFORMATION_SCHEMA.COLUMNS
+            WHERE COMMENT IS NOT NULL
+              AND TABLE_SCHEMA IN ('SALES', 'PRODUCTS', 'RETURNS', 'CUSTOMERS')
+        """
+        rows = self.execute_query(sql)
+
+        dictionary: dict[str, dict] = {}
+        for row in rows:
+            col = row["COLUMN_NAME"]
+            comment = row.get("COMMENT", "")
+            if not comment:
+                continue
+            try:
+                meta = _json.loads(comment)
+                meta["table"] = f"OMNIDATA_DB.{row.get('TABLE_SCHEMA', 'SALES')}.{row['TABLE_NAME']}"
+                meta["canonical_column"] = col
+                dictionary[col] = meta
+            except _json.JSONDecodeError:
+                logger.debug(f"Non-JSON comment on {row['TABLE_NAME']}.{col}, skipping")
+
+        logger.info(f"Fetched metric dictionary: {len(dictionary)} columns with metadata")
+        return dictionary
+
+    def get_jargon_overrides(self) -> dict[str, dict]:
+        """
+        Read all jargon override rules from SYSTEM.JARGON_OVERRIDES.
+        Returns: { "TERM": {"replacement": "...", "category": "..."} }
+        """
+        sql = "SELECT TERM, REPLACEMENT, CATEGORY FROM OMNIDATA_DB.SYSTEM.JARGON_OVERRIDES"
+        rows = self.execute_query(sql)
+
+        overrides: dict[str, dict] = {}
+        for row in rows:
+            overrides[row["TERM"]] = {
+                "replacement": row["REPLACEMENT"],
+                "category": row.get("CATEGORY", "custom"),
+            }
+
+        logger.info(f"Fetched {len(overrides)} jargon overrides from Snowflake")
+        return overrides
+
+    def save_jargon_override(self, term: str, replacement: str, category: str = "custom") -> None:
+        """
+        Upsert a jargon override into SYSTEM.JARGON_OVERRIDES (MERGE for idempotency).
+        """
+        term_esc = term.replace("'", "''")
+        repl_esc = replacement.replace("'", "''")
+        cat_esc = category.replace("'", "''")
+
+        sql = f"""
+            MERGE INTO OMNIDATA_DB.SYSTEM.JARGON_OVERRIDES AS target
+            USING (SELECT '{term_esc}' AS TERM, '{repl_esc}' AS REPLACEMENT, '{cat_esc}' AS CATEGORY) AS source
+            ON target.TERM = source.TERM
+            WHEN MATCHED THEN UPDATE SET
+                REPLACEMENT = source.REPLACEMENT,
+                CATEGORY = source.CATEGORY
+            WHEN NOT MATCHED THEN INSERT (TERM, REPLACEMENT, CATEGORY)
+                VALUES (source.TERM, source.REPLACEMENT, source.CATEGORY)
+        """
+        self.execute_ddl(sql)
+        logger.info(f"Saved jargon override: '{term}' → '{replacement}'")
+
+    def delete_jargon_override(self, term: str) -> bool:
+        """
+        Delete a jargon override from SYSTEM.JARGON_OVERRIDES.
+        Returns True if a row was deleted.
+        """
+        term_esc = term.replace("'", "''")
+        try:
+            # Check if it exists first
+            rows = self.execute_query(
+                f"SELECT 1 AS X FROM OMNIDATA_DB.SYSTEM.JARGON_OVERRIDES WHERE TERM = '{term_esc}'"
+            )
+            if not rows:
+                return False
+            self.execute_ddl(
+                f"DELETE FROM OMNIDATA_DB.SYSTEM.JARGON_OVERRIDES WHERE TERM = '{term_esc}'"
+            )
+            logger.info(f"Deleted jargon override: '{term}'")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete jargon override '{term}': {e}")
+            return False
+
     def close(self):
         """Close the active connection."""
         if self._connection and not self._connection.is_closed():

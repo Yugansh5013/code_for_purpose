@@ -16,7 +16,8 @@ need to compromise their internal data models.
 import time
 import uuid
 import logging
-from typing import Optional
+from typing import Optional, List
+from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -28,10 +29,40 @@ router = APIRouter(prefix="/api", tags=["Frontend Adapter"])
 
 # ── Request / Response Models (matching frontend types.ts) ──
 
+class ConversationTurn(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str  # message text or summary
+
+
 class FrontendChatRequest(BaseModel):
     session_id: str
     message: str
     clarification_answer: Optional[str] = None
+    conversation_history: Optional[List[ConversationTurn]] = None
+    user_role: Optional[str] = None  # "ceo", "north_manager", "south_manager"
+
+
+# ── RBAC Role Definitions ───────────────────────────────────
+ROLE_MAP = {
+    "ceo": {
+        "role": "ceo",
+        "region_filter": None,
+        "label": "CEO (Unrestricted)",
+        "restricted_tables": [],
+    },
+    "north_manager": {
+        "role": "north_manager",
+        "region_filter": "North",
+        "label": "North Region Manager",
+        "restricted_tables": ["AURA_SALES", "RETURN_EVENTS", "CUSTOMER_METRICS"],
+    },
+    "south_manager": {
+        "role": "south_manager",
+        "region_filter": "South",
+        "label": "South Region Manager",
+        "restricted_tables": ["AURA_SALES", "RETURN_EVENTS", "CUSTOMER_METRICS"],
+    },
+}
 
 
 # We return raw dicts so we have full control over the shape.
@@ -54,60 +85,129 @@ def _build_branches(result: dict) -> list[str]:
 
 
 def _build_trace(result: dict) -> list[dict]:
-    """Build a thinking-trace from the pipeline execution metadata."""
+    """Build a rich thinking-trace from the pipeline execution metadata.
+
+    Each entry has: node, detail, status, latency_ms, metadata.
+    The metadata dict powers the expandable panels in the frontend.
+    """
     trace = []
+
+    def fmt(v, decimals=2):
+        try:
+            return round(float(v), decimals)
+        except (TypeError, ValueError):
+            return 0.0
+
 
     # 1. Intent router
     router_info = result.get("router_decision") or {}
     sql_likely = router_info.get("sql_likely", True)
     rag_present = router_info.get("rag_present", True)
+    branches_human = []
+    if sql_likely:
+        branches_human.append("your data warehouse")
+    if rag_present:
+        branches_human.append("the knowledge base")
     trace.append({
         "node": "intent_router",
-        "detail": f"sql_likely={sql_likely}, rag_present={rag_present}",
+        "status": "success",
+        "latency_ms": router_info.get("latency_ms"),
+        "detail": f"Understood your question — checking {' and '.join(branches_human) or 'all sources'}",
+        "metadata": None,
     })
 
     # 2. Temporal resolver
     temporal = result.get("temporal_note")
-    trace.append({
-        "node": "temporal_resolver",
-        "detail": temporal if temporal else "no date phrase detected",
-    })
+    if temporal:
+        trace.append({
+            "node": "temporal_resolver",
+            "status": "success",
+            "latency_ms": None,
+            "detail": f"Time period identified → {temporal}",
+            "metadata": None,
+        })
 
     # 3. Metric resolver
     metric_info = result.get("metric_resolution") or {}
-    if metric_info:
-        matched = metric_info.get("matched_metrics", [])
-        if matched:
-            trace.append({
-                "node": "metric_resolver",
-                "detail": f"resolved → {', '.join(matched)}",
-            })
-        else:
-            trace.append({
-                "node": "metric_resolver",
-                "detail": "no metric aliases detected",
-            })
-    else:
+    matched = metric_info.get("matched_metrics", [])
+    if matched:
         trace.append({
             "node": "metric_resolver",
-            "detail": "no metric aliases detected",
+            "status": "success",
+            "latency_ms": None,
+            "detail": f"Business terms mapped → {', '.join(matched)}",
+            "metadata": None,
         })
 
     # 4. Branch SQL
     sql_out = result.get("sql_output") or {}
     if sql_out and not sql_out.get("error"):
         charts = sql_out.get("charts", [])
-        if charts:
+        total_rows = sum(c.get("row_count", 0) for c in charts) if charts else len(sql_out.get("rows", []))
+        first_sql = None
+        if charts and charts[0].get("sql"):
+            first_sql = charts[0]["sql"]
+        elif sql_out.get("query"):
+            first_sql = sql_out.get("query")
+        confidence = result.get("confidence_score")
+        sql_meta = {k: v for k, v in {
+            "sql": first_sql,
+            "row_count": total_rows,
+            "confidence": fmt(confidence) if confidence else None,
+        }.items() if v is not None}
+        sub_count = len(charts) if charts else 1
+        trace.append({
+            "node": "branch_sql",
+            "status": "success",
+            "latency_ms": sql_out.get("metadata", {}).get("latency_ms"),
+            "detail": f"Found {total_rows} matching record{'s' if total_rows != 1 else ''} across {sub_count} {'queries' if sub_count > 1 else 'query'}",
+            "metadata": sql_meta if sql_meta else None,
+        })
+        # 4b. E2B sandbox
+        e2b_meta = sql_out.get("metadata", {})
+        if e2b_meta.get("e2b_used"):
+            py_code = sql_out.get("e2b_code") or e2b_meta.get("python_code")
+            chart_type = "interactive chart" if sql_out.get("e2b_plotly_json") else "static chart"
             trace.append({
-                "node": "branch_sql",
-                "detail": f"generated {len(charts)} sub-queries → execute → {sum(c.get('row_count', 0) for c in charts)} rows",
+                "node": "e2b_sandbox",
+                "status": "success",
+                "latency_ms": e2b_meta.get("e2b_latency_ms"),
+                "detail": f"Generated a {chart_type} from your data ✨",
+                "metadata": {"python_code": py_code} if py_code else None,
             })
-        else:
-            rows_ct = len(sql_out.get("rows", []))
+        elif sql_out.get("e2b_code"):
             trace.append({
-                "node": "branch_sql",
-                "detail": f"schema_rag → sql_gen → execute → {rows_ct} rows",
+                "node": "e2b_sandbox",
+                "status": "error",
+                "latency_ms": None,
+                "detail": "Data visualization failed — falling back to text analysis",
+                "metadata": {"error_message": str(sql_out.get("e2b_error", "Sandbox execution failed"))[:300]},
             })
+    elif sql_out and sql_out.get("error"):
+        error_msg = str(sql_out.get("error", ""))[:300]
+        trace.append({
+            "node": "branch_sql",
+            "status": "error",
+            "latency_ms": None,
+            "detail": "Couldn't retrieve data from the warehouse — the query didn't succeed",
+            "metadata": {"error_message": error_msg},
+        })
+        # Recovery suggestion
+        original_query = result.get("original_query", "")
+        suggestion = f"Show me a summary of overall sales instead"
+        if "churn" in original_query.lower():
+            suggestion = "Show me overall customer retention trends instead"
+        elif "region" in original_query.lower() or "store" in original_query.lower():
+            suggestion = "Show me national-level totals instead of by region"
+        elif "product" in original_query.lower():
+            suggestion = "Show me top 10 products by revenue instead"
+        trace.append({
+            "node": "recovery",
+            "status": "suggestion",
+            "latency_ms": None,
+            "detail": "I had trouble fetching that exact data. Would you like to try a related query?",
+            "metadata": {"suggestion": suggestion, "error_context": error_msg[:150]},
+        })
 
     # 5. Branch Salesforce
     sf_out = result.get("salesforce_output") or {}
@@ -117,18 +217,58 @@ def _build_trace(result: dict) -> list[dict]:
         top_score = sf_meta.get("top_score", 0)
         trace.append({
             "node": "branch_soql",
-            "detail": f"crm_vector_search → {record_ct} records [score: {top_score:.2f}]",
+            "status": "success",
+            "latency_ms": sf_meta.get("latency_ms"),
+            "detail": f"Found {record_ct} relevant CRM record{'s' if record_ct != 1 else ''} in Salesforce",
+            "metadata": {"record_count": record_ct, "top_score": fmt(top_score)},
+        })
+    elif sf_out and sf_out.get("error"):
+        trace.append({
+            "node": "branch_soql",
+            "status": "error",
+            "latency_ms": None,
+            "detail": "Could not reach Salesforce — CRM data is unavailable right now",
+            "metadata": {"error_message": str(sf_out.get("error", ""))[:200]},
+        })
+        trace.append({
+            "node": "recovery",
+            "status": "suggestion",
+            "latency_ms": None,
+            "detail": "Salesforce was unreachable. The answer was built from other available sources.",
+            "metadata": {"suggestion": "Show me what data is available about this customer from other sources"},
         })
 
-    # 6. Branch RAG
+    # 6. Branch RAG / Confluence
     rag_out = result.get("rag_output") or {}
     if rag_out and not rag_out.get("error"):
         rag_meta = rag_out.get("metadata", {})
         docs = rag_meta.get("documents", [])
         top_score = max((d.get("relevance", 0) for d in docs), default=0)
+        query = rag_meta.get("query") or rag_out.get("query")
+        rag_payload: dict = {"document_count": len(docs), "top_score": fmt(top_score)}
+        if query:
+            rag_payload["search_query"] = query
         trace.append({
             "node": "branch_rag",
-            "detail": f"confluence_search → {len(docs)} chunks [score: {top_score:.2f}]",
+            "status": "success",
+            "latency_ms": rag_meta.get("latency_ms"),
+            "detail": f"Found {len(docs)} relevant document{'s' if len(docs) != 1 else ''} in the knowledge base",
+            "metadata": rag_payload,
+        })
+    elif rag_out and rag_out.get("error"):
+        trace.append({
+            "node": "branch_rag",
+            "status": "error",
+            "latency_ms": None,
+            "detail": "Knowledge base search didn't return results — document index may be unavailable",
+            "metadata": {"error_message": str(rag_out.get("error", ""))[:200]},
+        })
+        trace.append({
+            "node": "recovery",
+            "status": "suggestion",
+            "latency_ms": None,
+            "detail": "I couldn't search internal documents. The answer relies on live data instead.",
+            "metadata": {"suggestion": "Search for this topic in the knowledge base"},
         })
 
     # 7. Branch Web
@@ -136,27 +276,58 @@ def _build_trace(result: dict) -> list[dict]:
     if web_out and not web_out.get("error"):
         web_meta = web_out.get("metadata", {})
         web_results = web_meta.get("web_results", [])
+        query = web_meta.get("query") or web_out.get("query")
+        web_payload: dict = {"document_count": len(web_results)}
+        if query:
+            web_payload["search_query"] = query
         trace.append({
             "node": "branch_web",
-            "detail": f"tavily_search → {len(web_results)} results",
+            "status": "success",
+            "latency_ms": web_meta.get("latency_ms"),
+            "detail": f"Searched the web — found {len(web_results)} relevant source{'s' if len(web_results) != 1 else ''}",
+            "metadata": web_payload,
+        })
+    elif web_out and web_out.get("error"):
+        trace.append({
+            "node": "branch_web",
+            "status": "error",
+            "latency_ms": None,
+            "detail": "Live web search timed out — external market data is unavailable",
+            "metadata": {"error_message": str(web_out.get("error", ""))[:200]},
+        })
+        trace.append({
+            "node": "recovery",
+            "status": "suggestion",
+            "latency_ms": None,
+            "detail": "Web data wasn't available. I've answered using internal sources only.",
+            "metadata": {"suggestion": "Try asking again to retry the web search"},
         })
 
     # 8. Synthesis
     sources_ct = len(result.get("sources_used", []))
     trace.append({
         "node": "synthesis_node",
-        "detail": f"merging {sources_ct} branch outputs → jargon audit",
+        "status": "success",
+        "latency_ms": None,
+        "detail": f"Combined {sources_ct} source{'s' if sources_ct != 1 else ''} into a clear answer",
+        "metadata": None,
     })
 
     # 9. Semantic validator
     jargon = result.get("jargon_substitutions", [])
     trace.append({
         "node": "semantic_validator",
-        "detail": f"rag_present={rag_present} → {len(jargon)} terms rewritten" if jargon else "no jargon detected → pass-through",
+        "status": "success",
+        "latency_ms": None,
+        "detail": f"Simplified {len(jargon)} technical term{'s' if len(jargon) != 1 else ''} for plain English" if jargon else "Language check passed — response is jargon-free",
         "highlight": True,
+        "metadata": None,
     })
 
     return trace
+
+
+
 
 
 def _build_sources(result: dict) -> list[dict]:
@@ -283,7 +454,7 @@ def _build_transparency(result: dict) -> dict:
         "sql": sql_str,
         "soql": None,  # Salesforce uses vector search, not live SOQL
         "raw_data": raw_data,
-        "python_code": None,  # E2B sandbox not active
+        "python_code": sql_out.get("e2b_code"),  # E2B sandbox generated Python
         "context_chunks": context_chunks if context_chunks else None,
         "confidence": confidence,
         "semantic_substitutions": semantic_subs if semantic_subs else None,
@@ -360,6 +531,10 @@ def _build_stat_updates(result: dict) -> list[dict]:
     return stats if stats else []
 
 
+# ── In-memory session store for multi-turn context ──────────
+_session_history: dict[str, list[dict]] = defaultdict(list)
+
+
 # ── Adapter Routes ───────────────────────────────────────────
 
 def create_adapter_routes(graph, groq_pool):
@@ -376,15 +551,32 @@ def create_adapter_routes(graph, groq_pool):
         
         Uses Server-Sent Events (SSE) to stream live execution traces back
         to the frontend, followed by the final answer payload.
+        Supports multi-turn conversations via conversation_history.
         """
         start = time.time()
         
+        # Build conversation history from frontend + server-side store
+        history = []
+        if request.conversation_history:
+            history = [
+                {"role": t.role, "content": t.content}
+                for t in request.conversation_history[-6:]  # last 6 turns (3 exchanges)
+            ]
+        elif _session_history.get(request.session_id):
+            history = _session_history[request.session_id][-6:]
+
+        # Resolve RBAC context
+        user_context = ROLE_MAP.get(request.user_role or "ceo", ROLE_MAP["ceo"])
+        logger.info(f"RBAC context: {user_context['label']} (filter={user_context['region_filter']})")
+
         initial_state = {
             "original_query": request.message,
+            "conversation_history": history,
+            "user_context": user_context,
         }
         if request.clarification_answer:
             initial_state["original_query"] = (
-                f"{request.message} (specifically: {request.clarification_answer})"
+                f"(specifically: {request.clarification_answer}) for {request.message}"
             )
 
         async def event_generator():
@@ -392,30 +584,45 @@ def create_adapter_routes(graph, groq_pool):
             final_state = initial_state.copy()
             
             try:
+                # 0. Stream security context as first trace event
+                if user_context.get("region_filter"):
+                    sec_detail = f"Security context: {user_context['label']} — data restricted to {user_context['region_filter']} region"
+                else:
+                    sec_detail = f"Security context: {user_context['label']} — unrestricted access"
+                sec_payload = {"type": "trace", "node": "security_context", "detail": sec_detail}
+                yield f"data: {json.dumps(sec_payload, default=str)}\n\n"
+                await asyncio.sleep(0.01)
+
                 # 1. Stream intermediate events from LangGraph
                 async for event in graph.astream(initial_state, stream_mode="updates"):
                     for node_name, update in event.items():
                         if update:
                             final_state.update(update)
                         
-                        # Generate a human-readable trace detail based on the node
-                        detail = f"Processing data in {node_name}..."
+                        # Jargon-free live streaming trace detail
+                        detail = "Working on your request…"
                         if node_name == "intent_router":
-                            detail = "Analyzing intent and planning execution route..."
+                            detail = "Understanding your question…"
                         elif node_name == "clarification":
-                            detail = "Checking if clarification is needed..."
+                            detail = "Checking if I need more information…"
                         elif node_name == "branch_sql":
-                            detail = "Querying Snowflake data warehouse..."
+                            detail = "Looking up your data in the warehouse…"
                         elif node_name == "branch_rag":
-                            detail = "Searching Confluence knowledge base..."
+                            detail = "Searching internal documents and knowledge base…"
                         elif node_name == "branch_salesforce":
-                            detail = "Retrieving records from Salesforce CRM..."
+                            detail = "Scanning Salesforce CRM records…"
                         elif node_name == "branch_web":
-                            detail = "Running live web searches via Tavily..."
+                            detail = "Searching the web for relevant information…"
                         elif node_name == "semantic_validator":
-                            detail = "Auditing response for compliance and jargon..."
+                            detail = "Checking the response for jargon and simplifying…"
                         elif node_name == "synthesis":
-                            detail = "Synthesizing cross-source intelligence..."
+                            detail = "Putting together a clear answer for you…"
+                        elif node_name == "synthesis_node":
+                            detail = "Putting together a clear answer for you…"
+                        elif node_name == "temporal_resolver":
+                            detail = "Working out what time period you mean…"
+                        elif node_name == "metric_resolver":
+                            detail = "Matching business terms to the right metrics…"
                             
                         trace_payload = {
                             "type": "trace",
@@ -435,7 +642,7 @@ def create_adapter_routes(graph, groq_pool):
                     option_labels = []
                     for opt in options:
                         if isinstance(opt, dict):
-                            option_labels.append(opt.get("display_name", opt.get("label", str(opt))))
+                            option_labels.append(opt.get("label", opt.get("display_name", str(opt))))
                         else:
                             option_labels.append(str(opt))
 
@@ -559,9 +766,26 @@ def create_adapter_routes(graph, groq_pool):
                         "confidence_score": result.get("confidence_score"),
                         "confidence_tier": result.get("confidence_tier"),
                         "processing_time_ms": processing_time,
+                        "e2b_plotly_json": sql_out.get("e2b_plotly_json"),
+                        "e2b_chart_image": sql_out.get("e2b_chart_image"),
+                        "security_context": user_context,
+                        "suggested_followups": result.get("suggested_followups", []),
                     },
                 }
                 yield f"data: {json.dumps(answer_data, default=str)}\n\n"
+
+                # Accumulate conversation history for this session
+                _session_history[request.session_id].append(
+                    {"role": "user", "content": request.message}
+                )
+                response_text = result.get("final_response", "")
+                # Store a condensed summary (first 200 chars) for context
+                _session_history[request.session_id].append(
+                    {"role": "assistant", "content": response_text[:200]}
+                )
+                # Cap history per session to prevent unbounded growth
+                if len(_session_history[request.session_id]) > 20:
+                    _session_history[request.session_id] = _session_history[request.session_id][-12:]
 
             except Exception as e:
                 logger.error(f"Frontend chat streaming failed: {e}", exc_info=True)

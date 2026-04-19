@@ -3,7 +3,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/omnidata-backend', './backend']
     
-  # 2. Push Backend Docker Image to Artifact Registry / GCR
+  # 2. Push Backend Docker Image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/omnidata-backend']
 
@@ -13,24 +13,28 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'omnidata-backend'
+      - 'code-for-purpose'
       - '--image'
       - 'gcr.io/$PROJECT_ID/omnidata-backend'
       - '--region'
-      - 'us-central1'
+      - 'europe-west1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
       - '--cpu'
       - '1'
       - '--memory'
-      - '512Mi'
+      - '1Gi'
+      - '--timeout'
+      - '300'
+      - '--set-env-vars'
+      - 'PORT=8080'
 
   # 4. Build Frontend Docker Image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/omnidata-frontend', './frontend']
 
-  # 5. Push Frontend Docker Image to Artifact Registry / GCR
+  # 5. Push Frontend Docker Image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/omnidata-frontend']
 
@@ -40,11 +44,11 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'omnidata-frontend'
+      - 'code-for-purpose-frontend'
       - '--image'
       - 'gcr.io/$PROJECT_ID/omnidata-frontend'
       - '--region'
-      - 'us-central1'
+      - 'europe-west1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'

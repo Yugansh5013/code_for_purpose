@@ -4,7 +4,7 @@ OmniData — Semantic Output Validator (Node 3)
 Three-layer jargon detection and rewriting pipeline:
   Layer 1: Pattern-based detection (regex) — catches __c fields,
            ALL_CAPS columns, fully-qualified table names, SQL fragments
-  Layer 2: Known jargon registry — metric dictionary + jargon_overrides.yaml
+  Layer 2: Known jargon registry — metric dictionary + Snowflake-backed overrides
   Layer 3: LLM rewriting (Llama 3.3 8B) — naturally rewrites flagged terms
 
 Fires ONLY when rag_present = true (any unstructured data source was used).
@@ -12,13 +12,18 @@ Pure SQL or pure Web queries skip this node.
 
 The substitution log is returned to the frontend for the "Language Audit"
 transparency panel.
+
+Persistence:
+  - Primary: Snowflake SYSTEM.JARGON_OVERRIDES table
+  - Fallback: local jargon_overrides.yaml (for offline dev / Snowflake outage)
 """
 
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 
@@ -27,7 +32,19 @@ from src.clarification.metric_resolver import get_jargon_map
 
 logger = logging.getLogger(__name__)
 
-VALIDATOR_MODEL = "llama-3.3-8b-instant"
+VALIDATOR_MODEL = "llama-3.1-8b-instant"
+
+# ── Module-level Snowflake connector reference ───────────────
+_snowflake_connector = None
+_last_sync_time: Optional[datetime] = None
+
+
+def set_snowflake_connector(connector):
+    """Called once at startup from main.py to wire the Snowflake connection."""
+    global _snowflake_connector
+    _snowflake_connector = connector
+    logger.info("Semantic validator: Snowflake connector wired")
+
 
 # ── Jargon Overrides Loader ──────────────────────────────────
 
@@ -37,13 +54,24 @@ _overrides_cache: dict | None = None
 
 def _load_overrides() -> dict[str, dict]:
     """
-    Load user-defined jargon overrides from YAML.
+    Load jargon overrides — Snowflake-first, YAML fallback.
     Returns a dict: { "TERM": {"replacement": "...", "category": "..."} }
     """
-    global _overrides_cache
+    global _overrides_cache, _last_sync_time
     if _overrides_cache is not None:
         return _overrides_cache
 
+    # Try Snowflake first
+    if _snowflake_connector:
+        try:
+            _overrides_cache = _snowflake_connector.get_jargon_overrides()
+            _last_sync_time = datetime.now(timezone.utc)
+            logger.info(f"Loaded {len(_overrides_cache)} jargon overrides from Snowflake")
+            return _overrides_cache
+        except Exception as e:
+            logger.warning(f"Snowflake overrides fetch failed, falling back to YAML: {e}")
+
+    # Fallback to YAML
     if not _OVERRIDES_PATH.exists():
         _overrides_cache = {}
         return _overrides_cache
@@ -61,15 +89,68 @@ def _load_overrides() -> dict[str, dict]:
             }
 
     _overrides_cache = overrides
-    logger.info(f"Loaded {len(overrides)} jargon overrides from config")
+    _last_sync_time = datetime.now(timezone.utc)
+    logger.info(f"Loaded {len(overrides)} jargon overrides from YAML fallback")
     return overrides
 
 
 def reload_overrides():
-    """Force reload of jargon overrides (called after POST /jargon)."""
+    """Force reload of jargon overrides (called after POST /jargon or /sync)."""
     global _overrides_cache
     _overrides_cache = None
     return _load_overrides()
+
+
+def sync_from_snowflake() -> dict:
+    """
+    Force a full re-sync of both dictionary + overrides from Snowflake.
+    Called by POST /api/sync-semantics and at backend startup.
+    Returns sync stats.
+    """
+    global _overrides_cache, _last_sync_time
+    from src.clarification.metric_resolver import reload_metrics
+
+    stats = {"overrides": 0, "dictionary": 0, "source": "unknown", "timestamp": None}
+
+    if not _snowflake_connector:
+        stats["source"] = "no_connector"
+        logger.warning("Sync requested but no Snowflake connector available")
+        return stats
+
+    # Sync overrides
+    try:
+        _overrides_cache = _snowflake_connector.get_jargon_overrides()
+        stats["overrides"] = len(_overrides_cache)
+        stats["source"] = "snowflake"
+    except Exception as e:
+        logger.error(f"Override sync failed: {e}")
+        stats["source"] = "error"
+
+    # Sync metric dictionary
+    try:
+        dict_count = reload_metrics(_snowflake_connector)
+        stats["dictionary"] = dict_count
+    except Exception as e:
+        logger.error(f"Dictionary sync failed: {e}")
+
+    _last_sync_time = datetime.now(timezone.utc)
+    stats["timestamp"] = _last_sync_time.isoformat()
+
+    logger.info(
+        f"Semantic sync complete: {stats['overrides']} overrides, "
+        f"{stats['dictionary']} dictionary entries from {stats['source']}"
+    )
+    return stats
+
+
+def get_sync_status() -> dict:
+    """Return the current sync status for the frontend status panel."""
+    return {
+        "last_sync": _last_sync_time.isoformat() if _last_sync_time else None,
+        "overrides_count": len(_overrides_cache) if _overrides_cache else 0,
+        "source": "snowflake" if _snowflake_connector else "yaml",
+        "connector_available": _snowflake_connector is not None,
+    }
 
 
 def get_all_jargon() -> list[dict]:
@@ -105,22 +186,31 @@ def get_all_jargon() -> list[dict]:
 
 def add_jargon_override(term: str, replacement: str, category: str = "custom"):
     """
-    Add a new user-defined jargon term to the overrides file.
-    Called by POST /jargon endpoint.
+    Add a new user-defined jargon term.
+    Writes to Snowflake (primary) with YAML fallback.
     """
     overrides = _load_overrides()
 
     # Add to in-memory cache
     overrides[term] = {"replacement": replacement, "category": category}
 
-    # Persist to YAML
-    _save_overrides(overrides)
-    logger.info(f"Added jargon override: '{term}' → '{replacement}'")
+    # Persist to Snowflake
+    if _snowflake_connector:
+        try:
+            _snowflake_connector.save_jargon_override(term, replacement, category)
+            logger.info(f"Added jargon override to Snowflake: '{term}' → '{replacement}'")
+            return
+        except Exception as e:
+            logger.warning(f"Snowflake write failed, falling back to YAML: {e}")
+
+    # Fallback: persist to YAML
+    _save_overrides_yaml(overrides)
+    logger.info(f"Added jargon override to YAML: '{term}' → '{replacement}'")
 
 
 def remove_jargon_override(term: str) -> bool:
     """
-    Remove a user-defined jargon term from the overrides file.
+    Remove a user-defined jargon term.
     Returns True if removed, False if not found.
     """
     overrides = _load_overrides()
@@ -129,13 +219,24 @@ def remove_jargon_override(term: str) -> bool:
         return False
 
     del overrides[term]
-    _save_overrides(overrides)
-    logger.info(f"Removed jargon override: '{term}'")
+
+    # Delete from Snowflake
+    if _snowflake_connector:
+        try:
+            _snowflake_connector.delete_jargon_override(term)
+            logger.info(f"Removed jargon override from Snowflake: '{term}'")
+            return True
+        except Exception as e:
+            logger.warning(f"Snowflake delete failed, falling back to YAML: {e}")
+
+    # Fallback: persist to YAML
+    _save_overrides_yaml(overrides)
+    logger.info(f"Removed jargon override from YAML: '{term}'")
     return True
 
 
-def _save_overrides(overrides: dict):
-    """Persist the overrides dict back to YAML."""
+def _save_overrides_yaml(overrides: dict):
+    """Persist the overrides dict back to YAML (fallback only)."""
     entries = []
     for term, info in overrides.items():
         entries.append({
@@ -153,7 +254,6 @@ def _save_overrides(overrides: dict):
             sort_keys=False,
         )
 
-    # Reload cache
     reload_overrides()
 
 
@@ -319,8 +419,7 @@ async def semantic_validator_node(state: GraphState, groq_pool: Any) -> dict:
     )
 
     try:
-        client = groq_pool.get_client()
-        response = client.chat.completions.create(
+        response = groq_pool.complete_with_retry(
             model=VALIDATOR_MODEL,
             messages=[
                 {"role": "system", "content": prompt},

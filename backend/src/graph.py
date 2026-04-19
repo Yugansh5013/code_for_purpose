@@ -30,6 +30,7 @@ def build_graph(
     dense_index: str = "omnidata-dense",
     tavily_api_key: str = "",
     salesforce_connector: Any = None,
+    e2b_api_key: str = "",
 ) -> Any:
     """
     Build and compile the LangGraph pipeline.
@@ -54,6 +55,7 @@ def build_graph(
         schema_store=schema_store,
         examples_store=examples_store,
         snowflake_connector=snowflake_connector,
+        e2b_api_key=e2b_api_key,
     )
     bound_branch_rag = partial(
         branch_rag_node,

@@ -10,7 +10,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -89,6 +89,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Salesforce connection failed: {e} — using vector fallback")
     
+    # Wire Snowflake connector into semantic validator for jargon overrides
+    from src.validation.semantic_validator import set_snowflake_connector, sync_from_snowflake
+    set_snowflake_connector(_snowflake)
+    
+    # Auto-sync metric dictionary + jargon overrides from Snowflake at startup
+    try:
+        sync_result = sync_from_snowflake()
+        logger.info(
+            f"Startup sync: {sync_result.get('overrides', 0)} overrides, "
+            f"{sync_result.get('dictionary', 0)} dictionary entries from {sync_result.get('source', '?')}"
+        )
+    except Exception as e:
+        logger.warning(f"Startup semantic sync failed (using YAML fallback): {e}")
+    
     # Build LangGraph pipeline
     _graph = build_graph(
         groq_pool=_groq_pool,
@@ -99,6 +113,7 @@ async def lifespan(app: FastAPI):
         dense_index=settings.pinecone_dense_index,
         tavily_api_key=settings.tavily_api_key,
         salesforce_connector=_salesforce,
+        e2b_api_key=settings.e2b_api_key,
     )
     
     # Mount frontend adapter routes (/api/chat, /api/status, /api/metrics)
@@ -169,6 +184,7 @@ class QueryResponse(BaseModel):
     clarification_needed: bool = False
     clarification_options: list[dict] = []
     processing_time_ms: int = 0
+    suggested_followups: list[str] = []
 
 
 class HealthResponse(BaseModel):
@@ -266,6 +282,7 @@ async def query_endpoint(request: QueryRequest):
             clarification_needed=False,
             clarification_options=[],
             processing_time_ms=processing_time,
+            suggested_followups=result.get("suggested_followups", [])
         )
         
     except Exception as e:
@@ -489,11 +506,204 @@ async def delete_jargon(term: str):
     """
     Remove a user-defined jargon term.
     
-    Only user-defined overrides can be removed. Metric Dictionary
-    terms are read-only.
+    Deletes from Snowflake (primary) with YAML fallback.
+    Only user-defined overrides can be removed.
     """
     from src.validation.semantic_validator import remove_jargon_override
     removed = remove_jargon_override(term)
     if not removed:
         raise HTTPException(status_code=404, detail=f"Term '{term}' not found in overrides")
     return {"status": "removed", "term": term}
+
+
+# ── Semantic Sync Endpoints ──────────────────────────────────
+
+@app.post("/api/sync-semantics")
+async def sync_semantics():
+    """
+    Force re-sync of metric dictionary + jargon overrides from Snowflake.
+    
+    Reads column COMMENTs from INFORMATION_SCHEMA and overrides from
+    SYSTEM.JARGON_OVERRIDES, updating the in-memory caches.
+    """
+    from src.validation.semantic_validator import sync_from_snowflake
+    result = sync_from_snowflake()
+    return {
+        "status": "synced",
+        "overrides_count": result.get("overrides", 0),
+        "dictionary_count": result.get("dictionary", 0),
+        "source": result.get("source", "unknown"),
+        "timestamp": result.get("timestamp"),
+    }
+
+
+@app.get("/api/sync-status")
+async def sync_status():
+    """
+    Return the current semantic sync status.
+    
+    Shows whether the system is synced with Snowflake and when
+    the last sync occurred.
+    """
+    from src.validation.semantic_validator import get_sync_status
+    return get_sync_status()
+
+
+# ── Document Upload Endpoints ────────────────────────────────
+
+@app.post("/api/upload-document")
+async def upload_document(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    space: str = Form("UPLOADS"),
+):
+    """
+    Upload a document to the knowledge base.
+    
+    Accepts .txt, .md, .csv, or .pdf files.
+    Chunks the text and upserts into Pinecone for RAG retrieval.
+    """
+    if not _pinecone:
+        raise HTTPException(status_code=503, detail="Pinecone client not initialized")
+    
+    # Validate file type
+    allowed_extensions = {".txt", ".md", ".csv", ".pdf"}
+    filename = file.filename or "unknown.txt"
+    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
+    # Read file content
+    raw_bytes = await file.read()
+    
+    if ext == ".pdf":
+        try:
+            import io
+            import PyPDF2
+            reader = PyPDF2.PdfReader(io.BytesIO(raw_bytes))
+            text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        except ImportError:
+            # Fallback: try pdfplumber
+            try:
+                import io
+                import pdfplumber
+                with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                    text = "\n\n".join(page.extract_text() or "" for page in pdf.pages)
+            except ImportError:
+                raise HTTPException(
+                    status_code=500,
+                    detail="PDF parsing requires PyPDF2 or pdfplumber. Install with: pip install PyPDF2"
+                )
+    else:
+        text = raw_bytes.decode("utf-8", errors="replace")
+    
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Document is empty or could not be parsed")
+    
+    doc_title = title.strip() or filename.rsplit(".", 1)[0]
+    
+    # Chunk the document
+    chunks = _chunk_text(text, chunk_size=800, overlap=100)
+    logger.info(f"Upload: '{doc_title}' → {len(chunks)} chunks ({len(text)} chars)")
+    
+    # Build Pinecone records
+    import hashlib
+    doc_id = hashlib.md5(f"{doc_title}:{filename}".encode()).hexdigest()[:16]
+    
+    records = []
+    for i, chunk in enumerate(chunks):
+        records.append({
+            "_id": f"upload-{doc_id}-{i}",
+            "text": chunk,
+            "title": doc_title,
+            "space": space,
+            "doc_id": doc_id,
+            "chunk_index": i,
+            "source": "user_upload",
+            "filename": filename,
+        })
+    
+    # Upsert to Pinecone
+    from src.config.settings import get_settings
+    settings = get_settings()
+    
+    try:
+        _pinecone.upsert_records(
+            index_name=settings.pinecone_dense_index,
+            namespace="confluence_store",
+            records=records,
+        )
+    except Exception as e:
+        logger.error(f"Upload upsert failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to store document: {str(e)}")
+    
+    return {
+        "status": "success",
+        "doc_id": doc_id,
+        "title": doc_title,
+        "filename": filename,
+        "chunks": len(chunks),
+        "total_chars": len(text),
+        "space": space,
+    }
+
+
+@app.get("/api/kb-stats")
+async def kb_stats():
+    """Return knowledge base index stats."""
+    if not _pinecone:
+        raise HTTPException(status_code=503, detail="Pinecone client not initialized")
+    
+    from src.config.settings import get_settings
+    settings = get_settings()
+    
+    try:
+        index = _pinecone.pc.Index(settings.pinecone_dense_index)
+        stats = index.describe_index_stats()
+        ns_stats = {}
+        if hasattr(stats, 'namespaces') and stats.namespaces:
+            for ns_name, ns_info in stats.namespaces.items():
+                ns_stats[ns_name] = ns_info.vector_count if hasattr(ns_info, 'vector_count') else 0
+        return {
+            "total_vectors": stats.total_vector_count,
+            "namespaces": ns_stats,
+            "index": settings.pinecone_dense_index,
+        }
+    except Exception as e:
+        logger.error(f"KB stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list[str]:
+    """Split text into overlapping chunks by paragraph boundaries."""
+    paragraphs = text.split("\n\n")
+    chunks = []
+    current = ""
+    
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        
+        if len(current) + len(para) + 2 > chunk_size and current:
+            chunks.append(current.strip())
+            # Keep overlap from end of previous chunk
+            words = current.split()
+            overlap_words = words[-overlap // 5:] if len(words) > overlap // 5 else []
+            current = " ".join(overlap_words) + "\n\n" + para if overlap_words else para
+        else:
+            current = current + "\n\n" + para if current else para
+    
+    if current.strip():
+        chunks.append(current.strip())
+    
+    # If no paragraph breaks, fall back to fixed-size chunking
+    if len(chunks) <= 1 and len(text) > chunk_size:
+        chunks = []
+        for i in range(0, len(text), chunk_size - overlap):
+            chunks.append(text[i:i + chunk_size])
+    
+    return chunks if chunks else [text]

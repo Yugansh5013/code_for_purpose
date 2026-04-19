@@ -31,6 +31,10 @@ class SQLBranchOutput(BranchOutput, total=False):
     confidence_tier: str         # "green", "amber", "red"
     retry_count: int             # Number of SQL generation retries
     pinecone_top_score: float    # Top-1 RAG relevance score
+    # E2B Sandbox visualization outputs
+    e2b_plotly_json: Optional[str]   # Plotly fig.to_json() string (interactive chart)
+    e2b_chart_image: Optional[str]   # Base64 PNG fallback image
+    e2b_code: Optional[str]          # Generated Python code (for transparency)
 
 
 class GraphState(TypedDict, total=False):
@@ -44,6 +48,9 @@ class GraphState(TypedDict, total=False):
     # ── Input ──────────────────────────────────────────────
     original_query: str
     conversation_history: List[dict]
+
+    # ── Security Context (RBAC) ───────────────────────────
+    user_context: Optional[dict]  # {"role": "north_manager", "region_filter": "North", "label": "North Region Manager"}
 
     # ── Node 0: Intent Router ─────────────────────────────
     branches: List[str]           # ["sql"], ["sql", "rag_confluence"], etc.
@@ -74,7 +81,9 @@ class GraphState(TypedDict, total=False):
 
     # ── Node 2: Synthesis ─────────────────────────────────
     draft_response: str
+    suggested_followups: List[str]
     sources_used: List[dict]      # [{"source": "snowflake", "label": "...", "confidence": 0.9}]
+    reasoning_trace: Optional[str]  # DeepSeek-R1 <think> block — raw model reasoning
 
     # ── Node 3: Semantic Validator (Phase 2+) ─────────────
     final_response: str

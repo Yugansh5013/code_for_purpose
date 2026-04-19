@@ -1,1057 +1,300 @@
-"use client";
+import Link from 'next/link';
 
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  ArcElement,
-  PointElement,
-  Tooltip,
-  Legend,
-  Filler,
-} from "chart.js";
-import { Bar, Line, Pie } from "react-chartjs-2";
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  ArcElement,
-  PointElement,
-  Tooltip,
-  Legend,
-  Filler
-);
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const CHART_COLORS = [
-  "#3b82f6",
-  "#8b5cf6",
-  "#06b6d4",
-  "#22c55e",
-  "#f59e0b",
-  "#ef4444",
-];
-
-/* ################################################################
-   Types
-   ################################################################ */
-
-interface ChartPanel {
-  title: string;
-  chart_type: string;
-  data: Record<string, unknown>[];
-  columns: string[];
-  sql?: string;
-  row_count: number;
-  confidence_score: number;
-  confidence_tier: string;
-}
-
-interface RagDoc {
-  title: string;
-  space: string;
-  excerpt: string;
-  relevance: number;
-}
-
-interface WebResult {
-  title: string;
-  url: string;
-  content: string;
-  score: number;
-}
-
-interface SFRecord {
-  account_name: string;
-  object_type: string;
-  excerpt: string;
-  relevance: number;
-}
-
-interface JargonSub {
-  original: string;
-  replacement: string;
-  category: string;
-}
-
-interface Source {
-  source_type: string;
-  label: string;
-  confidence?: number;
-}
-
-interface TraceEntry {
-  node: string;
-  detail: string;
-  highlight?: boolean;
-}
-
-interface AnswerPayload {
-  text: string;
-  branches: string[];
-  trace: TraceEntry[];
-  date_resolution?: string;
-  sources: Source[];
-  transparency: {
-    sql?: string;
-    raw_data?: Record<string, unknown>[];
-    confidence?: {
-      score: number;
-      tier: string;
-      signals: Record<string, number>;
-      explanation: string;
-    };
-    semantic_substitutions?: {
-      original: string;
-      replaced_with: string;
-      location: string;
-    }[];
-  };
-  chart_data?: {
-    type: string;
-    labels: string[];
-    values: number[];
-    y_label?: string;
-  };
-  charts?: ChartPanel[];
-  rag_documents?: RagDoc[];
-  web_results?: WebResult[];
-  salesforce_records?: SFRecord[];
-  jargon_substitutions?: JargonSub[];
-  confidence_score?: number;
-  confidence_tier?: string;
-  processing_time_ms?: number;
-}
-
-interface ChatMsg {
-  id: string;
-  role: "user" | "bot" | "clarification";
-  content: string;
-  answer?: AnswerPayload;
-  clarificationOptions?: unknown[];
-  originalQuery?: string;
-  streamingTrace?: TraceEntry[];
-}
-
-/* ################################################################
-   Main Page Component
-   ################################################################ */
-
-export default function OmniDataPage() {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [health, setHealth] = useState<string>("connecting");
-  const [healthServices, setHealthServices] = useState<Record<string,string>>({});
-  const [panelData, setPanelData] = useState<AnswerPayload | null>(null);
-  const chatRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll chat
-  useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-  }, [messages, loading]);
-
-  // Health check
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const r = await fetch(`${API_URL}/api/status`, { signal: AbortSignal.timeout(5000) });
-        const d = await r.json();
-        setHealthServices(d);
-        const allOk = Object.values(d).every((v) =>
-          typeof v === "string" && (v === "live" || v.startsWith("ok"))
-        );
-        setHealth(allOk ? "healthy" : "degraded");
-      } catch {
-        setHealth("offline");
-      }
-    };
-    check();
-    const iv = setInterval(check, 30000);
-    return () => clearInterval(iv);
-  }, []);
-
-  // Send query
-  const sendQuery = useCallback(
-    async (query: string, clarificationAnswer?: string) => {
-      if (!query.trim() || loading) return;
-      setLoading(true);
-
-      const msgId = `msg-${Date.now()}`;
-      
-      if (!clarificationAnswer) {
-        setMessages((m) => [
-          ...m,
-          { id: `u-${Date.now()}`, role: "user", content: query },
-          { id: msgId, role: "bot", content: "", streamingTrace: [] }
-        ]);
-        setInput("");
-      } else {
-        setMessages((m) => [
-          ...m,
-          { id: msgId, role: "bot", content: "", streamingTrace: [] }
-        ]);
-      }
-
-      try {
-        const r = await fetch(`${API_URL}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: "session-" + Date.now(),
-            message: query,
-            clarification_answer: clarificationAnswer,
-          }),
-        });
-
-        const reader = r.body?.getReader();
-        const decoder = new TextDecoder("utf-8");
-
-        if (reader) {
-          let buffer = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n\n");
-            buffer = lines.pop() || "";
-
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const dataString = line.substring(6);
-                try {
-                  const data = JSON.parse(dataString);
-                  if (data.type === "trace") {
-                    setMessages((m) => m.map((msg) => {
-                      if (msg.id === msgId) {
-                        return { ...msg, streamingTrace: [...(msg.streamingTrace || []), { node: data.node, detail: data.detail }] };
-                      }
-                      return msg;
-                    }));
-                  } else if (data.type === "clarification") {
-                    setMessages((m) => m.map((msg) => {
-                      if (msg.id === msgId) {
-                        return {
-                          ...msg,
-                          id: data.message_id || msgId,
-                          role: "clarification",
-                          content: data.clarification.question,
-                          clarificationOptions: data.clarification.options,
-                          originalQuery: query,
-                          streamingTrace: undefined
-                        };
-                      }
-                      return msg;
-                    }));
-                  } else if (data.type === "answer") {
-                    setMessages((m) => m.map((msg) => {
-                      if (msg.id === msgId) {
-                        return {
-                          ...msg,
-                          id: data.message_id || msgId,
-                          role: "bot",
-                          content: data.answer.text,
-                          answer: data.answer,
-                          streamingTrace: undefined
-                        };
-                      }
-                      return msg;
-                    }));
-                    setPanelData(data.answer);
-                  } else if (data.type === "error") {
-                    setMessages((m) => m.map((msg) => {
-                      if (msg.id === msgId) {
-                        return { ...msg, content: `Error: ${data.detail}`, streamingTrace: undefined };
-                      }
-                      return msg;
-                    }));
-                  }
-                } catch (err) {
-                  console.error("Parse error:", err, dataString);
-                }
-              }
-            }
-          }
-        }
-      } catch (e: unknown) {
-        const errMsg = e instanceof Error ? e.message : "Unknown error";
-        setMessages((m) => m.map((msg) => {
-          if (msg.id === msgId) {
-            return { ...msg, content: `Error: ${errMsg}. Is the backend running?`, streamingTrace: undefined };
-          }
-          return msg;
-        }));
-      }
-      setLoading(false);
-    },
-    [loading]
-  );
-
-  const askSuggested = (text: string) => {
-    setInput("");
-    sendQuery(text);
-  };
-
+export default function LandingPage() {
   return (
-    <>
-      <div className="bg-grid" />
-      <div className="app">
-        {/* ── Left Sidebar ── */}
-        <Sidebar onNewSession={() => { setMessages([]); setPanelData(null); setInput(""); }} healthServices={healthServices} />
+    <div className="bg-surface text-on-surface overflow-x-hidden min-h-screen">
+      {/* Top Navigation */}
+      <header className="fixed top-0 w-full z-50 bg-inherit/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-[0px_20px_40px_rgba(42,52,53,0.06)]">
+        <div className="flex justify-between items-center px-12 py-6 max-w-screen-2xl mx-auto">
+          <div className="text-2xl font-bold tracking-tighter text-slate-800 dark:text-slate-100 font-headline">OmniData</div>
+          <nav className="hidden md:flex items-center space-x-10">
+            <a href="#how-it-works" className="font-semibold text-sm tracking-tight text-slate-600 dark:text-slate-400 hover:text-teal-600 hover:scale-105 transition-transform duration-300 ease-out">How It Works</a>
+            <a href="#architecture" className="font-semibold text-sm tracking-tight text-slate-600 dark:text-slate-400 hover:text-teal-600 hover:scale-105 transition-transform duration-300 ease-out">Architecture</a>
+            <a href="#features" className="font-semibold text-sm tracking-tight text-slate-600 dark:text-slate-400 hover:text-teal-600 hover:scale-105 transition-transform duration-300 ease-out">Features</a>
+          </nav>
+          <Link href="/login" className="bg-gradient-to-br from-primary to-primary-container text-on-primary text-sm font-semibold tracking-tight px-6 py-2.5 rounded-full hover:scale-105 transition-transform duration-300 ease-out">
+            Launch Dashboard
+          </Link>
+        </div>
+      </header>
 
-        {/* ── Chat Panel ── */}
-        <div className="main-panel">
-          <div className="chat-area" ref={chatRef}>
-            {messages.length === 0 && (
-              <div className="welcome">
-                <div className="welcome-icon">⚡</div>
-                <h1>Ask anything about Aura Retail</h1>
-                <p>
-                  Query sales data, internal policies, market intelligence, and
-                  more — powered by multi-source AI.
+      <main className="relative">
+        {/* Ethereal Background */}
+        <div className="absolute inset-0 ethereal-gradient pointer-events-none opacity-50"></div>
+
+        {/* ──────────────── Hero ──────────────── */}
+        <section className="relative min-h-screen flex items-center pt-24 px-12 max-w-screen-2xl mx-auto overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center w-full fade-slide-in">
+            {/* Left Content */}
+            <div className="max-w-2xl space-y-8 z-10">
+              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-primary-container/30 text-on-primary-fixed-variant text-xs font-semibold tracking-widest uppercase">
+                <span className="material-symbols-outlined text-sm">auto_awesome</span>
+                <span>AI-Powered Data Intelligence</span>
+              </div>
+              
+              <h1 className="text-7xl font-extrabold tracking-tighter text-on-surface leading-[1.05] font-headline">
+                Ask Your Data <span className="text-primary-dim">in English</span>
+              </h1>
+              <p className="text-xl leading-relaxed text-on-surface-variant font-light max-w-xl">
+                OmniData translates plain-English business questions into live SQL queries against your Snowflake warehouse, 
+                Salesforce CRM, and internal knowledge base — returning charts, tables, and narrative insights in seconds.
+              </p>
+              
+              <div className="flex items-center space-x-6 pt-4">
+                <Link href="/login" className="bg-gradient-to-br from-primary to-primary-container text-on-primary px-8 py-4 rounded-full font-semibold shadow-lg shadow-primary/20 hover:scale-105 transition-transform duration-300">
+                  Try It Now
+                </Link>
+                <a href="#how-it-works" className="px-8 py-4 rounded-full font-semibold text-on-surface border border-outline-variant/15 hover:border-outline-variant/40 hover:bg-surface-container-low transition-all duration-300 flex items-center space-x-2">
+                  <span className="material-symbols-outlined">arrow_downward</span>
+                  <span>See How</span>
+                </a>
+              </div>
+
+              <div className="pt-12 grid grid-cols-3 gap-8">
+                <div>
+                  <div className="text-2xl font-bold text-on-surface">4</div>
+                  <div className="text-xs uppercase tracking-widest text-on-surface-variant">Data Sources</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-on-surface">~3s</div>
+                  <div className="text-xs uppercase tracking-widest text-on-surface-variant">Query to Insight</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-on-surface">100%</div>
+                  <div className="text-xs uppercase tracking-widest text-on-surface-variant">Transparent SQL</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Visual — Chat Preview */}
+            <div className="relative flex justify-center items-center">
+              <div className="relative w-full max-w-xl">
+                {/* Mock Chat Conversation */}
+                <div className="bg-surface-container-low rounded-[2rem] shadow-2xl p-8 space-y-5 border border-outline-variant/10">
+                  {/* User message */}
+                  <div className="flex justify-end">
+                    <div className="bg-primary text-on-primary px-5 py-3 rounded-2xl rounded-tr-md max-w-[280px] text-sm font-medium shadow-md">
+                      What were our total sales by region last quarter?
+                    </div>
+                  </div>
+                  
+                  {/* Bot thinking trace */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-primary text-sm">auto_awesome</span>
+                    </div>
+                    <div className="space-y-2.5 flex-1">
+                      <div className="bg-surface-container rounded-2xl rounded-tl-md px-5 py-3 text-sm text-on-surface shadow-sm">
+                        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-primary font-bold mb-2">
+                          <span className="material-symbols-outlined text-xs">route</span> Agent Pipeline
+                        </div>
+                        <div className="space-y-1.5 text-xs text-on-surface-variant">
+                          <div className="flex items-center gap-2"><span className="text-emerald-500">✓</span> Jargon rewrite: &quot;total sales&quot; → ACTUAL_SALES</div>
+                          <div className="flex items-center gap-2"><span className="text-emerald-500">✓</span> SQL generated against AURA_SALES</div>
+                          <div className="flex items-center gap-2"><span className="text-emerald-500">✓</span> 4 regions returned — chart rendered</div>
+                        </div>
+                      </div>
+                      <div className="bg-surface-container rounded-2xl rounded-tl-md px-5 py-3 text-sm text-on-surface shadow-sm">
+                        North led with <strong>£2.4M</strong>, followed by East at £1.8M. South saw a <strong>12% QoQ decline</strong> linked to higher return rates.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Input bar */}
+                  <div className="flex items-center gap-2 bg-surface rounded-xl px-4 py-3 border border-outline-variant/10">
+                    <span className="text-sm text-on-surface-variant flex-1">Ask about sales, churn, products...</span>
+                    <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+                      <span className="material-symbols-outlined text-on-primary text-sm">arrow_upward</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Floating Badge — Snowflake */}
+                <div className="absolute -top-4 -right-4 glass-panel rounded-2xl px-4 py-3 shadow-xl z-30 hover:scale-[1.02] transition-transform duration-300">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                    <span className="text-xs font-bold uppercase tracking-tight">Snowflake Live</span>
+                  </div>
+                </div>
+
+                {/* Floating Badge — Confidence */}
+                <div className="absolute -bottom-4 -left-4 glass-panel rounded-2xl px-4 py-3 shadow-xl z-30 hover:scale-[1.02] transition-transform duration-300">
+                  <div className="text-xs font-bold text-on-surface-variant uppercase tracking-tight">Confidence</div>
+                  <div className="text-xl font-extrabold text-primary mt-0.5">94%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ──────────────── How It Works ──────────────── */}
+        <section id="how-it-works" className="py-32 px-12 max-w-screen-2xl mx-auto">
+          <div className="mb-20 text-center space-y-4">
+            <h2 className="text-4xl font-bold tracking-tight text-on-surface font-headline">From Question to Insight in 3 Seconds</h2>
+            <p className="text-on-surface-variant max-w-2xl mx-auto">OmniData uses a multi-agent LangGraph pipeline to route, validate, execute, and narrate your data — with full transparency at every step.</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            {[
+              { icon: "edit_note", title: "You Ask", desc: "Type any business question in plain English. Jargon like 'revenue' is auto-rewritten to the correct column name.", color: "text-primary", step: "01" },
+              { icon: "account_tree", title: "AI Routes", desc: "LangGraph classifies your question and routes to the right data source — Snowflake, Salesforce, Confluence, or Web.", color: "text-secondary", step: "02" },
+              { icon: "code", title: "SQL Executes", desc: "A validated SQL query runs against your live Snowflake warehouse. Every query is shown in the transparency panel.", color: "text-tertiary", step: "03" },
+              { icon: "insights", title: "You See", desc: "Get a natural-language narrative, auto-generated charts, confidence score, and the full agent trace — all in one view.", color: "text-primary-dim", step: "04" },
+            ].map((step) => (
+              <div key={step.step} className="bg-surface-container-low hover:bg-surface-container rounded-[2rem] p-8 transition-all duration-300 relative group hover:scale-[1.01]">
+                <div className="absolute top-6 right-6 text-5xl font-black text-outline-variant/10 font-headline">{step.step}</div>
+                <div className={`w-14 h-14 rounded-2xl bg-surface-container flex items-center justify-center ${step.color} mb-6`}>
+                  <span className="material-symbols-outlined text-2xl" style={{fontVariationSettings: "'FILL' 1"}}>{step.icon}</span>
+                </div>
+                <h3 className="text-xl font-bold mb-3">{step.title}</h3>
+                <p className="text-on-surface-variant text-sm leading-relaxed">{step.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ──────────────── Architecture Bento ──────────────── */}
+        <section id="architecture" className="py-32 px-12 max-w-screen-2xl mx-auto">
+          <div className="mb-20 text-center space-y-4">
+            <h2 className="text-4xl font-bold tracking-tight text-on-surface font-headline">Enterprise Architecture</h2>
+            <p className="text-on-surface-variant max-w-xl mx-auto">Five data sources, one multi-agent brain, zero black boxes.</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 h-auto md:h-[700px]">
+            {/* Large Feature — Snowflake */}
+            <div className="col-span-1 md:col-span-8 bg-surface-container-low hover:bg-surface-container transition-colors duration-500 rounded-[2rem] p-12 flex flex-col justify-between overflow-hidden relative">
+              <div className="max-w-lg space-y-6 z-10">
+                <span className="material-symbols-outlined text-4xl text-primary" style={{fontVariationSettings: "'FILL' 1"}}>database</span>
+                <h3 className="text-3xl font-bold">Snowflake Data Warehouse</h3>
+                <p className="text-on-surface-variant leading-relaxed">
+                  The structured data backbone. OmniData generates validated SQL against your live OMNIDATA_DB warehouse across four schemas — 
+                  Sales, Products, Returns, and Customers — with AI-powered query decomposition for complex, multi-table questions.
                 </p>
-                <div className="suggested-queries">
-                  {[
-                    "Total sales by region in Q1 2026?",
-                    "Why did South region revenue drop in February?",
-                    "What does our returns policy say about defective products?",
-                    "Why are returns spiking for AuraSound Pro?",
-                    "SMB churn trends in the South",
-                    "How does AuraSound Pro compare to competitors?",
-                    "What's happening in the UK headphone market?",
-                  ].map((q) => (
-                    <button
-                      key={q}
-                      className="suggested-btn"
-                      onClick={() => askSuggested(q)}
-                    >
-                      {q}
-                    </button>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {["AURA_SALES", "PRODUCT_CATALOGUE", "RETURN_EVENTS", "CUSTOMER_METRICS"].map(t => (
+                    <span key={t} className="text-[10px] font-mono font-bold bg-primary/10 text-primary px-3 py-1.5 rounded-lg tracking-wide">{t}</span>
                   ))}
                 </div>
               </div>
-            )}
+              <div className="absolute bottom-0 right-0 w-1/3 h-1/3 opacity-10 pointer-events-none">
+                <span className="material-symbols-outlined text-[240px] text-primary">database</span>
+              </div>
+            </div>
 
-            {messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                msg={msg}
-                onClarify={(oq, cv) => sendQuery(oq, cv)}
-              />
+            {/* Side Features */}
+            <div className="col-span-1 md:col-span-4 flex flex-col gap-8">
+              <div className="flex-1 bg-surface-container-highest rounded-[2rem] p-10 flex flex-col justify-center items-center text-center space-y-4 hover:scale-[1.02] transition-transform duration-300">
+                <div className="w-16 h-16 rounded-full bg-surface-container-lowest flex items-center justify-center text-tertiary">
+                  <span className="material-symbols-outlined text-3xl">visibility</span>
+                </div>
+                <h4 className="text-xl font-bold">Full Transparency</h4>
+                <p className="text-sm text-on-surface-variant font-medium">Every query exposes the generated SQL, live agent trace, confidence score, and jargon rewrites. No black-box answers — ever.</p>
+              </div>
+              <Link href="/login" className="flex-1 block group bg-primary text-on-primary rounded-[2rem] p-10 flex flex-col justify-center space-y-4 relative overflow-hidden hover:scale-[1.02] transition-transform duration-300">
+                <h4 className="text-xl font-bold z-10">Metric Glossary</h4>
+                <p className="text-sm opacity-80 z-10 max-w-[220px]">12 business metrics with 93 natural-language aliases, units, and definitions — synced from Snowflake, browsable in the dashboard.</p>
+                <div className="absolute -right-4 -bottom-4 opacity-20 group-hover:scale-110 transition-transform duration-500">
+                  <span className="material-symbols-outlined text-[120px]">book</span>
+                </div>
+              </Link>
+            </div>
+
+            {/* Bottom Row — Data Sources */}
+            <div className="col-span-1 md:col-span-3 bg-surface-container hover:bg-surface-container-highest transition-colors duration-300 rounded-[2rem] p-8 flex flex-col justify-center space-y-3">
+              <div className="p-4 bg-surface-container-lowest/50 rounded-2xl shadow-sm w-fit">
+                <span className="material-symbols-outlined text-3xl text-secondary">cloud</span>
+              </div>
+              <h4 className="font-bold text-on-surface">Salesforce CRM</h4>
+              <p className="text-xs text-on-surface-variant font-semibold leading-relaxed">Accounts, opportunities, and churn risk — searched via Pinecone vectors with live SOQL fallback.</p>
+            </div>
+
+            <div className="col-span-1 md:col-span-3 bg-surface-container hover:bg-surface-container-highest transition-colors duration-300 rounded-[2rem] p-8 flex flex-col justify-center space-y-3">
+              <div className="p-4 bg-surface-container-lowest/50 rounded-2xl shadow-sm w-fit">
+                <span className="material-symbols-outlined text-3xl text-tertiary">article</span>
+              </div>
+              <h4 className="font-bold text-on-surface">Confluence Knowledge</h4>
+              <p className="text-xs text-on-surface-variant font-semibold leading-relaxed">Internal policies, trading updates, and product briefs — retrieved via Pinecone RAG with source citations.</p>
+            </div>
+
+            <div className="col-span-1 md:col-span-3 bg-surface-container hover:bg-surface-container-highest transition-colors duration-300 rounded-[2rem] p-8 flex flex-col justify-center space-y-3">
+              <div className="p-4 bg-surface-container-lowest/50 rounded-2xl shadow-sm w-fit">
+                <span className="material-symbols-outlined text-3xl text-primary-dim">language</span>
+              </div>
+              <h4 className="font-bold text-on-surface">Web Intelligence</h4>
+              <p className="text-xs text-on-surface-variant font-semibold leading-relaxed">Real-time competitor pricing, market trends, and industry benchmarks via Tavily live search.</p>
+            </div>
+
+            <div className="col-span-1 md:col-span-3 bg-surface-container hover:bg-surface-container-highest transition-colors duration-300 rounded-[2rem] p-8 flex flex-col justify-center space-y-3">
+              <div className="p-4 bg-surface-container-lowest/50 rounded-2xl shadow-sm w-fit">
+                <span className="material-symbols-outlined text-3xl text-primary">code_blocks</span>
+              </div>
+              <h4 className="font-bold text-on-surface">E2B Sandbox</h4>
+              <p className="text-xs text-on-surface-variant font-semibold leading-relaxed">AI-generated Python visualization code runs in an isolated cloud sandbox — Plotly charts rendered securely.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* ──────────────── Features ──────────────── */}
+        <section id="features" className="py-32 px-12 max-w-screen-2xl mx-auto">
+          <div className="mb-20 text-center space-y-4">
+            <h2 className="text-4xl font-bold tracking-tight text-on-surface font-headline">Built for Real Business Users</h2>
+            <p className="text-on-surface-variant max-w-xl mx-auto">No SQL knowledge required. No BI tool training. Just ask.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {[
+              { icon: "translate", title: "Jargon Translation", desc: "Language rules automatically rewrite technical column names like ACTUAL_SALES and CHURN_RATE into plain business English before the user ever sees them.", badge: "Live" },
+              { icon: "psychology", title: "LangGraph Agents", desc: "A multi-step agent pipeline classifies intent, decomposes complex queries, routes to 5 data sources in parallel, and synthesizes a unified narrative.", badge: "AI" },
+              { icon: "bar_chart", title: "Auto Visualization", desc: "Every SQL result is visualized automatically — bar, line, grouped bar, or scatter — using AI-generated Python code executed in a secure E2B sandbox.", badge: "Visual" },
+              { icon: "quiz", title: "Smart Clarification", desc: "Ambiguous terms like 'performance' or 'numbers' trigger clarification cards with specific options before any query executes.", badge: "UX" },
+              { icon: "admin_panel_settings", title: "Role-Based Access", desc: "Region managers see only their region's data. Access rules are enforced at the synthesis layer — the AI acknowledges restrictions transparently.", badge: "Security" },
+              { icon: "healing", title: "Self-Healing SQL", desc: "Domain experts can correct AI-generated queries and save them to a Pinecone vector store — the system learns and improves with every correction.", badge: "Learn" },
+            ].map((feat) => (
+              <div key={feat.title} className="bg-surface-container-low hover:bg-surface-container rounded-[2rem] p-8 transition-all duration-300 group hover:scale-[1.01] relative">
+                <div className="absolute top-6 right-6">
+                  <span className="text-[9px] font-bold uppercase tracking-widest bg-primary/10 text-primary px-2.5 py-1 rounded-md">{feat.badge}</span>
+                </div>
+                <div className="w-12 h-12 rounded-xl bg-surface-container flex items-center justify-center text-primary mb-5">
+                  <span className="material-symbols-outlined text-2xl" style={{fontVariationSettings: "'FILL' 1"}}>{feat.icon}</span>
+                </div>
+                <h3 className="text-lg font-bold mb-2">{feat.title}</h3>
+                <p className="text-on-surface-variant text-sm leading-relaxed">{feat.desc}</p>
+              </div>
             ))}
-
-            {loading && <ThinkingDots />}
           </div>
+        </section>
 
-          {/* ── Input Bar ── */}
-          <div className="input-zone">
-            <div className="action-row">
-              <button className="action-btn" onClick={() => askSuggested("Deep Analytics on Q1 Sales")}>📊 Deep Analytics</button>
-              <button className="action-btn" onClick={() => askSuggested("Audit our Return Policy")}>📄 Policy Audit</button>
-              <button className="action-btn" onClick={() => askSuggested("Check Salesforce Churn")}>☁️ CRM Churn</button>
-              <button className="action-btn" onClick={() => askSuggested("Search Web Competitors")}>🌐 Web Intel</button>
-            </div>
-            <div className="input-bar">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about sales, churn, products, market trends..."
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendQuery(input);
-                }
-              }}
-            />
-            <button
-              className="send-btn"
-              disabled={!input.trim() || loading}
-              onClick={() => sendQuery(input)}
-            >
-              ➤
-            </button>
+        {/* ──────────────── CTA ──────────────── */}
+        <section className="py-32 px-12">
+          <div className="max-w-4xl mx-auto rounded-[3rem] bg-gradient-to-br from-primary-dim to-primary p-16 md:p-20 text-center text-on-primary shadow-2xl relative overflow-hidden hover:shadow-primary/30 transition-shadow duration-500">
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+            <div className="relative z-10 space-y-8">
+              <h2 className="text-5xl md:text-6xl font-extrabold tracking-tight">Stop writing SQL.<br/>Start asking questions.</h2>
+              <p className="text-xl opacity-90 max-w-lg mx-auto font-light leading-relaxed">
+                OmniData connects to your Snowflake warehouse and turns plain English into live business intelligence — with full transparency.
+              </p>
+              <div className="pt-8">
+                <Link href="/login" className="bg-surface text-primary px-10 py-5 rounded-full font-bold text-lg hover:scale-105 transition-transform duration-300 shadow-xl inline-block">
+                  Launch the Dashboard
+                </Link>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
+      </main>
 
-        {/* ── Right Panel ── */}
-        <RightPanel data={panelData} />
-      </div>
-    </>
-  );
-}
-
-/* ################################################################
-   Sidebar
-   ################################################################ */
-
-function Sidebar({ 
-  onNewSession, 
-  healthServices 
-}: { 
-  onNewSession: () => void, 
-  healthServices: Record<string, string> 
-}) {
-  return (
-    <div className="sidebar">
-      <div className="sidebar-header">
-        <div className="logo">
-          <div className="logo-icon">⚡</div>
-          <span className="logo-text">OmniData</span>
-          <span className="logo-badge">PHASE 3</span>
-        </div>
-        <button className="new-chat-btn" onClick={onNewSession}>
-          + New Session
-        </button>
-      </div>
-
-      <div className="sidebar-section">
-        <h4 className="sidebar-title">DATA SOURCES</h4>
-        <div className="source-list">
-          <StatusItem label="Snowflake DWH" status={healthServices.snowflake} icon="❄️" />
-          <StatusItem label="Confluence Docs" status={healthServices.confluence} icon="📄" />
-          <StatusItem label="Salesforce CRM" status={healthServices.salesforce} icon="☁️" />
-          <StatusItem label="Tavily Web Search" status={healthServices.tavily} icon="🌐" />
-        </div>
-      </div>
-
-      <div className="sidebar-section">
-        <h4 className="sidebar-title">RECENT CHATS</h4>
-        <div className="recent-list">
-          <div className="recent-chat">Total sales by region Q1...</div>
-          <div className="recent-chat">Why did South revenue drop...</div>
-          <div className="recent-chat">Returns policy on defective...</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusItem({ label, status, icon }: { label: string; status?: string; icon: string }) {
-  const isLive = status === "live" || (status && status.startsWith("ok"));
-  const isSyncing = status === "syncing" || status === "connecting";
-  const dotColor = isLive ? "var(--accent-green)" : isSyncing ? "var(--accent-amber)" : "var(--accent-red)";
-  const shortLabel = status === "live" ? "Live" : status === "syncing" ? "Sync" : status === "connecting" ? "Conn" : status === "error" ? "Err" : "Web";
-  
-  return (
-    <div className="source-item">
-      <div className="source-info">
-        <span className="source-icon">{icon}</span>
-        <span className="source-label">{label}</span>
-      </div>
-      <div className="status-pill-small">
-        <span className="source-dot" style={{ backgroundColor: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
-        <span className="short-label">{shortLabel}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ################################################################
-   Message Bubble
-   ################################################################ */
-
-function MessageBubble({
-  msg,
-  onClarify,
-}: {
-  msg: ChatMsg;
-  onClarify: (oq: string, cv: string) => void;
-}) {
-  if (msg.role === "user") {
-    return (
-      <div className="message user">
-        <div className="msg-avatar">👤</div>
-        <div className="msg-content">{msg.content}</div>
-      </div>
-    );
-  }
-
-  if (msg.role === "clarification") {
-    return (
-      <div className="message bot">
-        <div className="msg-avatar">⚡</div>
-        <div className="msg-content">
-          <p>{msg.content}</p>
-          <div className="clarification-box">
-            <h4>⚡ Which metric did you mean?</h4>
-            <div className="clarification-options">
-              {(msg.clarificationOptions as string[] || []).map((opt) => (
-                <button
-                  key={String(opt)}
-                  className="clarification-btn"
-                  onClick={() => onClarify(msg.originalQuery || "", String(opt))}
-                >
-                  <div className="label">{String(opt)}</div>
-                </button>
-              ))}
-            </div>
+      {/* Footer */}
+      <footer className="mt-16 bg-surface-container-low dark:bg-slate-950 w-full rounded-t-[2rem]">
+        <div className="flex flex-col md:flex-row justify-between items-center px-12 py-16 w-full max-w-screen-2xl mx-auto">
+          <div className="mb-8 md:mb-0">
+            <div className="font-bold text-slate-800 dark:text-slate-100 text-xl font-headline mb-2">OmniData</div>
+            <p className="text-xs leading-relaxed uppercase tracking-widest text-slate-500">AI-Powered Data Intelligence Platform</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-10">
+            <span className="font-semibold text-xs uppercase tracking-widest text-slate-500">Snowflake · Salesforce · Confluence · Pinecone · LangGraph</span>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  // Bot answer
-  const a = msg.answer;
-  const tier = a?.confidence_tier || "green";
-  const score = a?.confidence_score || 0;
-  const tierLabel = tier === "green" ? "HIGH" : tier === "amber" ? "MEDIUM" : "LOW";
-  const timeStr = a?.processing_time_ms ? `${(a.processing_time_ms / 1000).toFixed(1)}s` : "";
-  const chartCount = a?.charts?.length || 0;
-
-  return (
-    <div className="message bot">
-      <div className="msg-avatar">⚡</div>
-      <div className="msg-content">
-        {/* Live Trace */}
-        {(a?.trace || msg.streamingTrace) && (
-          <LiveTraceUI trace={a?.trace || msg.streamingTrace || []} isComplete={!!a} />
-        )}
-
-        {/* Response text */}
-        <div className="markdown-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-        </div>
-
-        {/* Date + metric resolution */}
-        {a?.date_resolution && (
-          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
-            📅 {a.date_resolution}
-          </p>
-        )}
-
-        {/* Meta row */}
-        {a && (
-          <div className="msg-meta">
-            <span className={`confidence-badge ${tier}`}>
-              <span className={`confidence-dot ${tier}`} />
-              {tierLabel} ({Math.round(score * 100)}%)
-            </span>
-            {a?.sources?.map((s, i) => (
-              <span key={i} className="source-chip">📡 {s.label}</span>
-            ))}
-            {chartCount > 1 && (
-              <span className="multi-query-tag">📊 {chartCount} charts</span>
-            )}
-            {timeStr && <span className="time-chip">⏱ {timeStr}</span>}
-          </div>
-        )}
-      </div>
+      </footer>
     </div>
   );
-}
-
-/* ################################################################
-   Live Trace UI
-   ################################################################ */
-
-function LiveTraceUI({ trace, isComplete }: { trace: TraceEntry[], isComplete: boolean }) {
-  const [open, setOpen] = useState(false);
-
-  if (isComplete && !open) {
-    const count = trace.length > 0 ? trace.length : 1;
-    return (
-      <button className="trace-summary-btn" onClick={() => setOpen(true)}>
-        <span style={{color: 'var(--accent-green)'}}>✓</span> Processed {count} steps
-      </button>
-    );
-  }
-
-  return (
-    <div className="live-trace-container">
-      {isComplete && (
-        <button className="trace-summary-btn" onClick={() => setOpen(false)} style={{marginBottom: 8}}>
-          ▾ Hide Trace
-        </button>
-      )}
-      
-      {trace.length === 0 && !isComplete && (
-        <div className="live-trace-step">
-          <div className="live-trace-icon trace-active">⚡</div>
-          <div className="trace-text active">Initializing Agentic Tools...</div>
-        </div>
-      )}
-
-      {trace.map((t, i) => {
-        const isLastAndActive = !isComplete && i === trace.length - 1;
-        return (
-          <div key={i} className="live-trace-step">
-            <div className={`live-trace-icon ${isLastAndActive ? 'trace-active' : 'trace-completed'}`}>
-              {isLastAndActive ? '⚡' : '✓'}
-            </div>
-            <div className={`trace-text ${isLastAndActive ? 'active' : ''}`}>
-              {t.detail}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ################################################################
-   Thinking Dots
-   ################################################################ */
-
-function ThinkingDots() {
-  return (
-    <div className="thinking">
-      <div className="thinking-avatar">⚡</div>
-      <div className="thinking-dots">
-        <div className="thinking-dot" />
-        <div className="thinking-dot" />
-        <div className="thinking-dot" />
-      </div>
-    </div>
-  );
-}
-
-/* ################################################################
-   Right Panel
-   ################################################################ */
-
-function RightPanel({ data }: { data: AnswerPayload | null }) {
-  if (!data) {
-    return (
-      <div className="right-panel">
-        <div className="empty-panel">
-          <div className="empty-panel-icon">📊</div>
-          <div>Charts, SQL, and confidence scores will appear here when you ask a question.</div>
-        </div>
-      </div>
-    );
-  }
-
-  const charts = data.charts || [];
-  const ragDocs = data.rag_documents || [];
-  const webResults = data.web_results || [];
-  const sfRecords = data.salesforce_records || [];
-  const jargonSubs = data.jargon_substitutions || [];
-  const rawData = data.transparency?.raw_data || (charts.length > 0 ? charts[0].data as Record<string,unknown>[] : null);
-
-  return (
-    <div className="right-panel">
-      {/* Charts */}
-      {charts.length > 0 && (
-        <div className="panel-section">
-          <h3>📊 Visualizations{charts.length > 1 ? ` (${charts.length})` : ""}</h3>
-          {charts.map((c, i) => (
-            <ChartCard key={i} chart={c} colorIdx={i} />
-          ))}
-        </div>
-      )}
-
-      {/* RAG Documents */}
-      {ragDocs.length > 0 && (
-        <div className="panel-section">
-          <h3>📄 Knowledge Base{ragDocs.length > 1 ? ` (${ragDocs.length} documents)` : ""}</h3>
-          {ragDocs.map((doc, i) => (
-            <RagCard key={i} doc={doc} />
-          ))}
-        </div>
-      )}
-
-      {/* Web Results */}
-      {webResults.length > 0 && (
-        <div className="panel-section">
-          <h3>🌐 Web Intelligence{webResults.length > 1 ? ` (${webResults.length} sources)` : ""}</h3>
-          {webResults.map((wr, i) => (
-            <WebCard key={i} result={wr} />
-          ))}
-        </div>
-      )}
-
-      {/* Salesforce CRM */}
-      {sfRecords.length > 0 && (
-        <div className="panel-section">
-          <h3>🏢 Salesforce CRM ({sfRecords.length} records)</h3>
-          {sfRecords.map((rec, i) => (
-            <SFCard key={i} record={rec} />
-          ))}
-        </div>
-      )}
-
-      {/* Language Audit */}
-      {jargonSubs.length > 0 && (
-        <div className="panel-section">
-          <h3>🔤 Language Audit ({jargonSubs.length} terms rewritten)</h3>
-          {jargonSubs.map((sub, i) => (
-            <div key={i} className="lang-card">
-              <span className="lang-original">{sub.original}</span>
-              <span className="lang-arrow">→</span>
-              <span className="lang-replacement">{sub.replacement}</span>
-              <span className={`lang-category ${sub.category}`}>{sub.category.replace(/_/g, " ")}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Raw Data */}
-      {rawData && rawData.length > 0 && (
-        <div className="panel-section">
-          <h3>🗃️ Raw Data</h3>
-          <DataTable rows={rawData} />
-        </div>
-      )}
-
-      {/* SQL */}
-      {charts.some((c) => c.sql) && (
-        <div className="panel-section">
-          <h3>🔍 Generated SQL</h3>
-          {charts
-            .filter((c) => c.sql)
-            .map((c, i) => (
-              <SqlBlock key={i} sql={c.sql!} label={charts.length > 1 ? `Query ${i + 1}${c.title ? ` — ${c.title}` : ""}` : "Snowflake SQL"} />
-            ))}
-        </div>
-      )}
-
-      {/* Single SQL fallback */}
-      {data.transparency?.sql && !charts.some((c) => c.sql) && (
-        <div className="panel-section">
-          <h3>🔍 Generated SQL</h3>
-          <SqlBlock sql={data.transparency.sql} label="Snowflake SQL" />
-        </div>
-      )}
-
-      {/* Confidence */}
-      {data.confidence_score != null && (
-        <div className="panel-section">
-          <h3>🛡️ Confidence</h3>
-          <ConfidencePanel score={data.confidence_score} tier={data.confidence_tier || "green"} charts={charts} rawData={rawData} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ################################################################
-   Chart Card (renders each chart with Chart.js)
-   ################################################################ */
-
-function ChartCard({ chart, colorIdx }: { chart: ChartPanel; colorIdx: number }) {
-  if (!chart.data?.length) return null;
-
-  // Number card
-  if (chart.chart_type === "number") {
-    const row = chart.data[0];
-    const keys = Object.keys(row);
-    const numKey = keys.find((k) => {
-      const v = row[k];
-      if (typeof v === "number") return true;
-      if (typeof v === "string") {
-        const cleanVal = v.replace(/[%£$€,]/g, "");
-        return cleanVal !== "" && !isNaN(Number(cleanVal));
-      }
-      return false;
-    }) || keys[keys.length - 1];
-    
-    let val = 0;
-    const rawVal = row[numKey];
-    if (typeof rawVal === "number") {
-      val = rawVal;
-    } else if (typeof rawVal === "string") {
-      val = parseFloat(rawVal.replace(/[%£$€,]/g, "")) || 0;
-    }
-    return (
-      <div className="chart-container">
-        {chart.title && (
-          <div className="chart-title">
-            <span>{chart.title}</span>
-            <span className={`conf-pill ${chart.confidence_tier}`}>{Math.round(chart.confidence_score * 100)}%</span>
-          </div>
-        )}
-        <div className="number-card">
-          <div className="value">{formatNumber(val)}</div>
-          <div className="label">{(numKey || "").replace(/_/g, " ")}</div>
-        </div>
-      </div>
-    );
-  }
-
-  // Chart
-  const keys = Object.keys(chart.data[0]);
-  const labelKey = keys[0];
-  const numericKeys = keys.filter((k) => {
-    const v = chart.data[0][k];
-    if (k === labelKey) return false;
-    if (typeof v === "number") return true;
-    if (typeof v === "string") {
-      const cleanVal = v.replace(/[%£$€,]/g, "");
-      return cleanVal !== "" && !isNaN(Number(cleanVal));
-    }
-    return false;
-  });
-
-  if (!numericKeys.length) return null;
-
-  const labels = chart.data.map((r) => {
-    let v = String(r[labelKey] ?? "");
-    if (v.match(/^\d{4}-\d{2}/)) v = v.substring(0, 7);
-    return v;
-  });
-
-  const chartType = chart.chart_type === "line" ? "line" : chart.chart_type === "pie" || chart.chart_type === "doughnut" ? "doughnut" : "bar";
-
-  const datasets = numericKeys.slice(0, 3).map((key, j) => {
-    const c = CHART_COLORS[(colorIdx + j) % CHART_COLORS.length];
-    const values = chart.data.map((r) => {
-      const v = r[key];
-      if (typeof v === "number") return v;
-      const cleanVal = String(v).replace(/[%£$€,]/g, "");
-      return parseFloat(cleanVal) || 0;
-    });
-
-    return {
-      label: key.replace(/_/g, " "),
-      data: values,
-      backgroundColor:
-        chartType === "doughnut"
-          ? chart.data.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length] + "90")
-          : chartType === "bar"
-          ? c + "80"
-          : c + "20",
-      borderColor: chartType === "doughnut" ? "#0a0e1a" : c,
-      borderWidth: 2,
-      tension: 0.3,
-      pointRadius: chartType === "line" ? 3 : 0,
-      pointBackgroundColor: c,
-      fill: chartType === "line",
-    };
-  });
-
-  const options = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        labels: { color: "#94a3b8", font: { family: "Inter", size: 10 } },
-        position: chartType === "doughnut" ? "bottom" : "top",
-      },
-    },
-    scales:
-      chartType === "doughnut"
-        ? {}
-        : {
-            x: {
-              ticks: { color: "#64748b", font: { size: 9 }, maxRotation: 45 },
-              grid: { color: "#1e293b40" },
-            },
-            y: {
-              ticks: { color: "#64748b", font: { size: 9 } },
-              grid: { color: "#1e293b40" },
-            },
-          },
-  };
-
-  const chartData = { labels, datasets };
-  const ChartComponent = chartType === "line" ? Line : chartType === "doughnut" ? Pie : Bar;
-
-  return (
-    <div className="chart-container">
-      {(chart.title || true) && (
-        <div className="chart-title">
-          <span>{chart.title || `Chart ${colorIdx + 1}`}</span>
-          <span className={`conf-pill ${chart.confidence_tier}`}>{Math.round(chart.confidence_score * 100)}%</span>
-        </div>
-      )}
-      <div style={{ height: 180 }}>
-        <ChartComponent data={chartData} options={options as any} />
-      </div>
-    </div>
-  );
-}
-
-/* ################################################################
-   RAG Doc Card
-   ################################################################ */
-
-function RagCard({ doc }: { doc: RagDoc }) {
-  const [expanded, setExpanded] = useState(false);
-  const scorePct = Math.round(doc.relevance * 100);
-
-  let excerpt = doc.excerpt || "";
-  const titleEnd = excerpt.indexOf("\n\n");
-  if (titleEnd > 0 && titleEnd < 100) excerpt = excerpt.substring(titleEnd + 2);
-
-  return (
-    <div className={`rag-card${expanded ? " expanded" : ""}`}>
-      <div className="rag-card-header">
-        <span className="rag-card-title">{doc.title}</span>
-        <span className="rag-card-score">{scorePct}% match</span>
-      </div>
-      <div className="rag-card-space">📁 {doc.space || "AURA"}</div>
-      <div className="rag-card-excerpt">{excerpt.substring(0, 400)}</div>
-      <button className="rag-toggle" onClick={() => setExpanded(!expanded)}>
-        {expanded ? "Show less ▲" : "Show more ▼"}
-      </button>
-    </div>
-  );
-}
-
-/* ################################################################
-   Web Card
-   ################################################################ */
-
-function WebCard({ result }: { result: WebResult }) {
-  const [expanded, setExpanded] = useState(false);
-  const scorePct = Math.round(result.score * 100);
-  let domain = "";
-  try { domain = new URL(result.url).hostname.replace("www.", ""); } catch { domain = result.url; }
-
-  return (
-    <div className={`web-card${expanded ? " expanded" : ""}`}>
-      <div className="web-card-header">
-        <span className="web-card-title"><a href={result.url} target="_blank" rel="noopener noreferrer">{result.title}</a></span>
-        <span className="web-card-score">{scorePct}%</span>
-      </div>
-      <div className="web-card-url">🔗 {domain}</div>
-      <div className="web-card-content">{result.content}</div>
-      <button className="web-toggle" onClick={() => setExpanded(!expanded)}>
-        {expanded ? "Show less ▲" : "Show more ▼"}
-      </button>
-    </div>
-  );
-}
-
-/* ################################################################
-   Salesforce Card
-   ################################################################ */
-
-function SFCard({ record }: { record: SFRecord }) {
-  const scorePct = Math.round(record.relevance * 100);
-  return (
-    <div className="rag-card">
-      <div className="rag-card-header">
-        <span className="rag-card-title">🏢 {record.account_name}</span>
-        <span className="rag-card-score">{scorePct}%</span>
-      </div>
-      <div className="rag-card-space">{record.object_type}</div>
-      <div className="rag-card-excerpt" style={{ maxHeight: "none" }}>{record.excerpt}</div>
-    </div>
-  );
-}
-
-/* ################################################################
-   SQL Block
-   ################################################################ */
-
-function SqlBlock({ sql, label }: { sql: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="sql-block">
-      <div className="sql-header">
-        <span>{label}</span>
-        <button className="copy-btn" onClick={() => { navigator.clipboard.writeText(sql); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
-          {copied ? "Copied!" : "Copy"}
-        </button>
-      </div>
-      <pre className="sql-code">{sql}</pre>
-    </div>
-  );
-}
-
-/* ################################################################
-   Data Table
-   ################################################################ */
-
-function DataTable({ rows }: { rows: Record<string, unknown>[] }) {
-  if (!rows?.length) return null;
-  const keys = Object.keys(rows[0]);
-  return (
-    <div className="data-table-wrap">
-      <table className="data-table">
-        <thead>
-          <tr>{keys.map((k) => <th key={k}>{k.replace(/_/g, " ")}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 50).map((row, i) => (
-            <tr key={i}>
-              {keys.map((k) => {
-                let v = row[k];
-                if (typeof v === "number") v = formatNumber(v);
-                return <td key={k}>{String(v ?? "")}</td>;
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/* ################################################################
-   Confidence Panel
-   ################################################################ */
-
-function ConfidencePanel({
-  score,
-  tier,
-  charts,
-  rawData,
-}: {
-  score: number;
-  tier: string;
-  charts: ChartPanel[];
-  rawData: Record<string, unknown>[] | null;
-}) {
-  const color =
-    tier === "green" ? "var(--accent-green)" : tier === "amber" ? "var(--accent-amber)" : "var(--accent-red)";
-  const label = tier === "green" ? "HIGH" : tier === "amber" ? "MEDIUM" : "LOW";
-  const chartCount = charts.length || 1;
-  const totalRows = charts.reduce((s, c) => s + (c.row_count || 0), 0) || rawData?.length || 0;
-
-  return (
-    <div className="confidence-panel">
-      <div className="confidence-header">
-        <span className={`confidence-badge ${tier}`}>
-          <span className={`confidence-dot ${tier}`} />
-          {label}
-        </span>
-        <span className="confidence-score-big" style={{ color }}>
-          {score.toFixed(3)}
-        </span>
-      </div>
-      <div className="confidence-meter">
-        <div className="confidence-meter-fill" style={{ width: `${score * 100}%`, background: color }} />
-      </div>
-      <div className="signal-row">
-        <span className="signal-label">Sub-queries</span>
-        <span className="signal-value">{chartCount}</span>
-      </div>
-      <div className="signal-row">
-        <span className="signal-label">Total Rows</span>
-        <span className="signal-value">{totalRows}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ################################################################
-   Utility Functions
-   ################################################################ */
-
-
-
-function formatNumber(n: number | unknown): string {
-  if (typeof n !== "number") return String(n);
-  if (Math.abs(n) > 1000)
-    return "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (n % 1 !== 0) return n.toFixed(2);
-  return n.toLocaleString();
 }

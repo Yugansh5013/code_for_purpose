@@ -127,3 +127,62 @@ def _has_aggregate(tree) -> bool:
     if tree.find(exp.Group):
         return True
     return False
+
+
+# ── Row-Level Security (RLS) Validator ────────────────────
+
+# Tables that contain a GEO_TERRITORY column and require RLS filtering
+RLS_TABLES = {"AURA_SALES", "RETURN_EVENTS", "CUSTOMER_METRICS"}
+
+
+def validate_rls(sql: str, user_context: dict) -> tuple[bool, list[str]]:
+    """
+    Validate that a SQL query respects Row-Level Security constraints.
+    
+    For restricted users, checks that every query against RLS_TABLES
+    includes a WHERE GEO_TERRITORY = '{region}' filter.
+    
+    Args:
+        sql: The SQL string to validate
+        user_context: The RBAC context dict with 'region_filter' key
+    
+    Returns:
+        Tuple of (is_valid, errors)
+    """
+    region_filter = user_context.get("region_filter")
+    if not region_filter:
+        return True, []  # CEO / unrestricted — no RLS needed
+    
+    errors = []
+    sql_upper = sql.upper()
+    
+    # Quick check: does the SQL reference any RLS table?
+    tables_referenced = [t for t in RLS_TABLES if t in sql_upper]
+    
+    if not tables_referenced:
+        return True, []  # Query doesn't touch restricted tables
+    
+    # Check for the presence of the GEO_TERRITORY filter
+    # Accept variations: GEO_TERRITORY = 'North', "GEO_TERRITORY" = 'North', etc.
+    region_upper = region_filter.upper()
+    has_filter = (
+        f"GEO_TERRITORY = '{region_filter}'" in sql
+        or f"GEO_TERRITORY = '{region_upper}'" in sql_upper
+        or f'"GEO_TERRITORY" = \'{region_filter}\'' in sql
+        or f"GEO_TERRITORY='{region_filter}'" in sql
+    )
+    
+    if not has_filter:
+        errors.append(
+            f"RLS VIOLATION: Query accesses {', '.join(tables_referenced)} "
+            f"but is missing mandatory filter: WHERE GEO_TERRITORY = '{region_filter}'. "
+            f"The current user ({user_context.get('label', 'restricted')}) can only access "
+            f"{region_filter} region data. You MUST add GEO_TERRITORY = '{region_filter}' "
+            f"to the WHERE clause."
+        )
+        logger.warning(f"RLS enforcement triggered: missing GEO_TERRITORY filter for {region_filter}")
+        return False, errors
+    
+    logger.info(f"RLS validation passed: GEO_TERRITORY = '{region_filter}' present")
+    return True, []
+

@@ -50,10 +50,17 @@ async def branch_salesforce_node(
         Dict with salesforce_output populated
     """
     query = state.get("resolved_query", state.get("original_query", ""))
+    user_context = state.get("user_context") or {}
     
     logger.info(f"Branch Salesforce: searching CRM for '{query[:80]}...'")
     
     try:
+        # Build Pinecone metadata filter for restricted roles
+        pinecone_filter = None
+        if user_context.get("region_filter"):
+            pinecone_filter = {"region": {"$eq": user_context["region_filter"]}}
+            logger.info(f"Salesforce RLS: filtering to region={user_context['region_filter']}")
+        
         # ── Step 1: Search CRM data ──────────────────────
         crm_results = search_salesforce_crm(
             client=pinecone_client,
@@ -61,6 +68,7 @@ async def branch_salesforce_node(
             index_name=dense_index,
             top_k=5,
             salesforce_connector=salesforce_connector,
+            filter=pinecone_filter,
         )
         
         # Filter by minimum relevance

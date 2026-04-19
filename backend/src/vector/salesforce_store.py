@@ -26,6 +26,7 @@ def search_salesforce_crm(
     index_name: str = DEFAULT_INDEX,
     top_k: int = 5,
     salesforce_connector: Any = None,
+    filter: dict = None,
 ) -> list[dict]:
     """
     Search Salesforce CRM data using dense vector search against Pinecone.
@@ -42,6 +43,7 @@ def search_salesforce_crm(
         namespace=NAMESPACE,
         query_text=query,
         top_k=top_k,
+        filter=filter,
     )
 
     results = []

@@ -41,9 +41,10 @@ These narratives are designed so that a single complex query, such as *"Why did 
 
 - **Natural Language to SQL:** Automatically generates, validates, and executes SQL queries against a live Snowflake data warehouse containing 4 tables across 4 schemas.
 - **Retry with Error Correction:** If a generated SQL query fails on first execution, the system feeds the Snowflake error message back to the LLM for a corrected second attempt (up to 2 retries).
-- **Auto Chart Detection:** The SQL branch automatically determines the best chart type (bar, line, doughnut) based on the shape and cardinality of the result set.
-- **Multi-Chart Support:** Complex queries produce multiple chart panels (e.g., revenue by region + market share breakdown), rendered side by side.
-- **Formatted Data Handling:** Charts correctly handle formatted strings containing currency symbols (£, $, €), percentage signs (%), and comma separators.
+- **Query Decomposition:** Complex multi-dimensional questions are automatically decomposed into 2-3 focused sub-queries that execute independently and merge results.
+- **Auto Visualization (E2B Sandbox):** AI-generated Python code runs in an isolated E2B cloud sandbox to produce Plotly charts. The system selects the optimal chart type based on data shape and generates publication-quality, themed visualizations.
+- **Multi-Chart Support:** Complex queries produce multiple chart panels (e.g., revenue by region + churn by segment), rendered side by side with interactive Plotly JSON.
+- **Self-Healing SQL:** Domain experts can correct AI-generated SQL queries and save corrections to a Pinecone vector store. Future similar questions automatically retrieve the corrected pattern, making the system smarter with every human correction.
 
 ### Core: RAG Document Search (Pinecone — Live)
 
@@ -58,6 +59,7 @@ These narratives are designed so that a single complex query, such as *"Why did 
 
 - **LangGraph Multi-Agent Pipeline:** An intent router powered by Llama 3.3 70B classifies each query and activates only the relevant branches (SQL-only, RAG-only, Web-only, or multi-branch combinations).
 - **Sequential Chaining:** For multi-branch queries, branches execute sequentially in a deterministic chain: SQL → Salesforce → RAG → Web → Merge → Synthesis → Validator. This ensures reproducible results and allows later branches to build on earlier outputs.
+- **API Key Resilience:** The Groq key pool automatically rotates across 3 API keys. On a 429 rate-limit error, the system retries with the next key — ensuring zero downtime during heavy usage.
 
 ### Clarification & Resolution
 
@@ -76,12 +78,19 @@ These narratives are designed so that a single complex query, such as *"Why did 
 - **Server-Sent Events (SSE):** The frontend streams responses in real time via SSE, showing partial results as each pipeline node completes.
 - **Live Trace Animation:** Users see exactly which pipeline nodes are active (intent routing → clarification → SQL generation → synthesis → validation) with animated progress indicators.
 
-### Partially Implemented: CRM & Knowledge Base
+### Role-Based Access Control (RBAC)
 
-> These features are architected, coded, and seed-ready, but rely on external service connections that may not be active at demo time.
+- **Region-Level Data Scoping:** Different user roles see different data. A North Region Manager can only query North region data — even if they ask for "all regions," the AI acknowledges the restriction and offers to show their authorized region instead.
+- **Synthesis-Layer Enforcement:** Access rules are enforced at the synthesis layer, not just the UI — preventing data leakage through prompt manipulation.
 
-- **Salesforce CRM Branch:** Full connector code exists (`salesforce_connector.py`) with SOQL query generation. When the live Salesforce connection is unavailable (due to `simple_salesforce` package not being installed in the deployed environment), the system automatically falls back to pre-indexed CRM records stored in Pinecone's `omnidata-dense` index. CRM queries still return relevant account, case, and opportunity data via vector search.
-- **Confluence Knowledge Base Branch:** Full connector code exists (`confluence_client.py`) with REST API integration. When Confluence credentials are not configured, the system falls back to pre-indexed Confluence documents in Pinecone. Document queries still return relevant policy pages and memos via vector search.
+### File Upload
+
+- **Ad-Hoc Data Analysis:** Users can upload CSV, Excel, or PDF files directly into the chat. The AI reads the file structure and allows natural-language queries against the uploaded data — no schema setup required.
+
+### CRM & Knowledge Base
+
+- **Salesforce CRM Branch:** Full connector with SOQL query generation. Includes Pinecone vector-search as the primary retrieval method, with live SOQL fallback when the Salesforce connection is active. CRM queries return relevant account, case, and opportunity data.
+- **Confluence Knowledge Base Branch:** Full connector with REST API integration. Pre-indexed Confluence documents are retrieved via Pinecone RAG with source citations, document titles, and relevance scores.
 
 ---
 
@@ -89,13 +98,15 @@ These narratives are designed so that a single complex query, such as *"Why did 
 
 A core design principle of OmniData is that **every business term must have a single, unambiguous definition** shared between the AI and the organisation. This is implemented through the Metric Dictionary (`metric_dictionary.yaml`), a YAML file that acts as the semantic layer between business language and database columns.
 
+The dictionary currently defines **12 metrics** with **93 natural-language aliases**, covering revenue, units, churn, returns, ad spend, discounts, and more.
+
 | Metric Key | Display Name | Example Aliases | Canonical Column | Ambiguous? |
 |-----------|-------------|----------------|-----------------|-----------|
 | `revenue` | Total Sales | "money", "income", "earnings", "turnover" | `ACTUAL_SALES` | No |
 | `units_sold` | Units Sold | "volume", "quantity", "how many" | `UNITS_SOLD` | No |
-| `churn` | Customer Churn Rate | "attrition", "customers leaving" | `CHURN_RATE` | No |
+| `churn` | Customer Churn Rate | "attrition", "customers leaving", "drop-off" | `CHURN_RATE` | No |
+| `return_rate` | Return Rate | "returns", "refunds rate", "how many came back" | `RETURN_RATE` | No |
 | `performance` | *(ambiguous)* | "results", "numbers", "KPIs" | *(needs clarification)* | **Yes** |
-| `growth` | *(ambiguous)* | "increase", "expansion" | *(needs clarification)* | **Yes** |
 
 **How it works:**
 1. When a user types "show me growth," the Metric Resolver scans the query against all aliases.
@@ -263,8 +274,8 @@ flowchart TD
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | **Frontend** | Next.js 14, React 18, TypeScript | Single-page chat interface with SSE streaming |
-| **Styling** | Tailwind CSS 3, Lucide Icons | Dark-themed, responsive UI |
-| **Charts** | Chart.js, react-chartjs-2 | Interactive bar, line, and doughnut charts |
+| **Styling** | Tailwind CSS 3, Material Symbols, Lucide Icons | Ethereal-themed, responsive UI |
+| **Charts** | Plotly.js (via E2B) | AI-generated interactive bar, line, grouped bar, and scatter charts |
 | **State** | Zustand | Lightweight global state management |
 | **Backend** | FastAPI, Uvicorn, Python 3.11 | REST + SSE API server |
 | **Orchestration** | LangGraph | Multi-agent pipeline with conditional branching |
@@ -502,38 +513,40 @@ code_for_purpose/
 │   │   ├── branches/             # Data branch nodes (SQL, RAG, Salesforce, Web)
 │   │   ├── clarification/        # Temporal resolver, metric resolver, clarification flow
 │   │   ├── config/
-│   │   │   ├── metric_dictionary.yaml  # Semantic layer: aliases → columns
+│   │   │   ├── metric_dictionary.yaml  # Semantic layer: 12 metrics, 93 aliases
 │   │   │   ├── jargon_overrides.yaml   # Custom jargon replacement rules
-│   │   │   ├── groq_keys.py           # API key rotation pool
-│   │   │   └── settings.py            # Pydantic settings loader
+│   │   │   └── groq_keys.py           # API key rotation pool with retry logic
 │   │   ├── connectors/           # Confluence REST client, Salesforce connector
 │   │   ├── router/               # LLM-powered intent router
 │   │   ├── sandbox/              # E2B code execution sandbox
-│   │   ├── synthesis/            # Multi-source answer synthesis
-│   │   ├── validation/           # 3-layer semantic jargon validator
+│   │   ├── synthesis/            # Multi-source answer synthesis with fallback
+│   │   ├── validation/           # 3-layer semantic jargon validator + confidence scoring
 │   │   ├── vector/               # Pinecone client, schema store, examples store
 │   │   ├── warehouse/            # Snowflake connector
 │   │   ├── graph.py              # LangGraph pipeline wiring
 │   │   ├── main.py               # FastAPI app entry point
 │   │   └── state.py              # Typed graph state definition (GraphState)
 │   ├── seed/                     # Data seeding scripts for all services
+│   ├── tests/                    # Unit tests
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
 │   ├── app/
-│   │   ├── components/           # 19 React components
+│   │   ├── components/           # React components
 │   │   │   ├── tabs/             # Transparency tabs (SQL, Data, Docs, Confidence, etc.)
 │   │   │   └── ...               # Chat, Charts, Sidebar, Topbar, etc.
-│   │   ├── page.tsx              # Main application page
+│   │   ├── dashboard/            # Main dashboard page
+│   │   ├── login/                # Login / RBAC page
+│   │   ├── page.tsx              # Landing page
 │   │   ├── layout.tsx            # Root layout
 │   │   └── globals.css           # Global styles and design tokens
 │   ├── lib/
-│   │   ├── store.ts              # Zustand global state (30+ state properties)
-│   │   └── types.ts              # 35 TypeScript type definitions
+│   │   ├── store.ts              # Zustand global state
+│   │   └── types.ts              # TypeScript type definitions
 │   ├── package.json
 │   └── Dockerfile
 ├── cloudbuild.yaml               # GCP Cloud Build deployment pipeline
-├── .env.example                  # Complete environment template with comments
+├── .env.example                  # Complete environment template
 └── prd.md                        # Full Product Requirements Document
 ```
 
@@ -553,11 +566,10 @@ code_for_purpose/
 
 - **Persistent Chat History:** Add database-backed session storage so conversations survive page refreshes.
 - **Voice Input:** Integrate the Web Speech API for hands-free query input.
-- **Live Salesforce & Confluence:** Install `simple_salesforce` and configure Confluence API tokens in the deployed environment to enable real-time SOQL and REST queries.
-- **Role-Based Access Control:** Add authentication and row-level Snowflake security so different users see only the data they are authorised to access.
 - **Multi-Language Support:** Extend the LLM prompts and UI to support additional languages.
 - **Export Functionality:** Allow users to download query results as CSV or PDF.
 - **Dashboard Pinning:** Let users save favourite queries and pin chart panels to a persistent dashboard.
+- **Row-Level Security:** Integrate Snowflake row-level policies with the existing RBAC system for deeper data isolation.
 
 ---
 

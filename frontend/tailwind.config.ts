@@ -1,71 +1,118 @@
-import type { Config } from "tailwindcss";
-import tailwindcssAnimate from "tailwindcss-animate";
+import type { Config } from "tailwindcss"
 
-const config: Config = {
+const config = {
   darkMode: ["class"],
   content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./lib/**/*.{ts,tsx}"
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx}',
   ],
+  prefix: "",
   theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
     extend: {
       colors: {
-        bg: {
-          0: "var(--bg-0)",
-          1: "var(--bg-1)",
-          2: "var(--bg-2)",
-          3: "var(--bg-3)"
-        },
-        border: {
-          0: "var(--border-0)",
-          1: "var(--border-1)"
-        },
-        text: {
-          0: "var(--text-0)",
-          1: "var(--text-1)",
-          2: "var(--text-2)",
-          3: "var(--text-3)"
-        },
-        blue: {
-          DEFAULT: "var(--blue)",
-          dim: "var(--blue-dim)",
-          border: "var(--blue-border)",
-          text: "var(--blue-text)"
-        },
-        green: {
-          DEFAULT: "var(--green)",
-          dim: "var(--green-dim)",
-          border: "var(--green-border)"
-        },
-        amber: {
-          DEFAULT: "var(--amber)",
-          dim: "var(--amber-dim)",
-          border: "var(--amber-border)"
-        },
-        purple: {
-          DEFAULT: "var(--purple)",
-          dim: "var(--purple-dim)",
-          border: "var(--purple-border)"
-        },
-        red: {
-          DEFAULT: "var(--red)",
-          dim: "var(--red-dim)",
-          border: "var(--red-border)"
-        },
-        orange: {
-          DEFAULT: "var(--orange)",
-          dim: "var(--orange-dim)",
-          border: "var(--orange-border)"
-        }
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        foreground: "hsl(var(--foreground))",
+        "primary-container": "#c3eaea",
+        "on-secondary-fixed": "#2b4444",
+        "surface-variant": "#dde4e4",
+        "primary-fixed-dim": "#b6dcdc",
+        "on-error": "#fff7f6",
+        "on-error-container": "#6e0a12",
+        "on-primary-container": "#345858",
+        "on-surface-variant": "#596061",
+        "tertiary-fixed": "#b0daf8",
+        "secondary": "#4a6464",
+        "surface-tint": "#426565",
+        "surface-dim": "#d4dbdc",
+        "error-dim": "#67040d",
+        "on-tertiary-fixed": "#083a52",
+        "surface-container-lowest": "#ffffff",
+        "tertiary": "#3a647d",
+        "surface-container-high": "#e4e9ea",
+        "on-secondary": "#e2fefe",
+        "primary": "#426565",
+        "secondary-fixed-dim": "#bedada",
+        "on-secondary-container": "#3d5656",
+        "error": "#a83836",
+        "inverse-on-surface": "#9b9d9d",
+        "surface-bright": "#f8fafa",
+        "surface-container-highest": "#dde4e4",
+        "background": "#f8fafa",
+        "inverse-surface": "#0b0f0f",
+        "surface": "#f8fafa",
+        "tertiary-container": "#b0daf8",
+        "on-tertiary-fixed-variant": "#2d5770",
+        "surface-container": "#eaefef",
+        "tertiary-fixed-dim": "#a3cce9",
+        "tertiary-dim": "#2e5771",
+        "primary-fixed": "#c3eaea",
+        "secondary-container": "#cce8e8",
+        "on-background": "#2d3435",
+        "error-container": "#fa746f",
+        "surface-container-low": "#f0f4f4",
+        "on-tertiary": "#f5f9ff",
+        "on-surface": "#2d3435",
+        "on-primary-fixed": "#214545",
+        "outline": "#757c7d",
+        "secondary-dim": "#3e5858",
+        "on-tertiary-container": "#224d66",
+        "outline-variant": "#acb3b4",
+        "primary-dim": "#355959",
+        "on-secondary-fixed-variant": "#476060",
+        "on-primary": "#e0ffff",
+        "inverse-primary": "#d7fefe",
+        "secondary-fixed": "#cce8e8",
+        "on-primary-fixed-variant": "#3e6262"
+      },
+      borderRadius: {
+        "DEFAULT": "1rem",
+        "lg": "2rem",
+        "xl": "3rem",
+        "full": "9999px"
       },
       fontFamily: {
-        mono: ["var(--font-ibm-plex-mono)"],
-        sans: ["var(--font-ibm-plex-sans)"]
-      }
-    }
+        headline: ["Manrope", "sans-serif"],
+        body: ["Manrope", "sans-serif"],
+        label: ["Inter", "sans-serif"],
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+        "collapsible-down": {
+          from: { height: "0", opacity: "0" },
+          to: { height: "var(--radix-collapsible-content-height)", opacity: "1" },
+        },
+        "collapsible-up": {
+          from: { height: "var(--radix-collapsible-content-height)", opacity: "1" },
+          to: { height: "0", opacity: "0" },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+        "collapsible-down": "collapsible-down 0.2s ease-out",
+        "collapsible-up": "collapsible-up 0.2s ease-out",
+      },
+    },
   },
-  plugins: [tailwindcssAnimate]
-};
+  plugins: [require("tailwindcss-animate"), require("@tailwindcss/container-queries")],
+} satisfies Config
 
-export default config;
+export default config

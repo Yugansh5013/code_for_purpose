@@ -41,6 +41,7 @@ Rules:
 - "Which customers are at risk?" needs rag_salesforce  
 - "What's happening in the market?" needs web
 - Pure data questions (revenue, units, trends) need only sql
+- If the user's message is a follow-up (e.g. "break that down", "now by region", "what about X"), use the conversation context below to understand what they're referring to
 - Output ONLY valid JSON, no other text
 """
 
@@ -59,13 +60,30 @@ async def intent_router_node(state: GraphState, groq_pool: Any) -> dict:
     query = state["original_query"]
     
     try:
-        client = groq_pool.get_client()
-        response = client.chat.completions.create(
+        # Build messages with conversation context for follow-ups
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+        ]
+
+        # Inject conversation history so the model can resolve references
+        history = state.get("conversation_history", []) or []
+        if history:
+            context_lines = []
+            for turn in history[-4:]:  # last 2 exchanges
+                role = turn.get("role", "user")
+                content = turn.get("content", "")[:150]  # truncate for speed
+                context_lines.append(f"{role}: {content}")
+            context_block = "\n".join(context_lines)
+            messages.append({
+                "role": "user",
+                "content": f"## Recent Conversation Context:\n{context_block}\n\n## Current Query:\n{query}"
+            })
+        else:
+            messages.append({"role": "user", "content": query})
+
+        response = groq_pool.complete_with_retry(
             model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": query},
-            ],
+            messages=messages,
             temperature=0.0,
             max_tokens=300,
             response_format={"type": "json_object"},

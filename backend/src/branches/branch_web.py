@@ -49,30 +49,45 @@ CONTEXT_SUFFIX = "UK retail market 2025 2026"
 def _rewrite_query_for_web(query: str) -> str:
     """
     Rewrite an internal-facing query into an industry-generic web search query.
-    
+
     Strips company-specific product names and replaces them with
     industry-generic terms so Tavily returns relevant market data.
+    Hard-caps at 380 characters to stay within Tavily's 400-char limit.
     """
-    rewritten = query.lower()
-    
+    # ── Step 1: For multi-part queries, extract only the web-relevant clause ──
+    # Look for competitor / market / pricing clauses separated by commas or "and"
+    WEB_KEYWORDS = [
+        "competitor", "pricing", "market", "industry", "benchmark",
+        "trend", "compare", "external", "rival", "landscape"
+    ]
+    parts = [p.strip() for p in query.replace(" and ", ",").split(",") if p.strip()]
+    web_parts = [p for p in parts if any(kw in p.lower() for kw in WEB_KEYWORDS)]
+    # Fall back to the full query if no specific web clause found
+    focused = " ".join(web_parts) if web_parts else query
+
+    # ── Step 2: Replace internal brand/company terms ──
+    rewritten = focused.lower()
     for internal, external in COMPANY_TERMS.items():
         rewritten = rewritten.replace(internal, external)
-    
+
     # Remove filler phrases
-    for filler in ["can you tell me", "please", "i want to know", "help me understand"]:
+    for filler in ["can you tell me", "please", "i want to know", "help me understand",
+                   "what does", "what is", "how does", "right now"]:
         rewritten = rewritten.replace(filler, "")
-    
-    # Clean up and add context
-    rewritten = " ".join(rewritten.split())  # collapse whitespace
-    
-    # Only append context suffix if the query doesn't already have
-    # enough context words
+
+    # Clean up whitespace
+    rewritten = " ".join(rewritten.split())
+
+    # ── Step 3: Add context suffix if needed ──
     context_words = ["market", "industry", "competitor", "trend", "uk", "retail"]
     has_context = any(w in rewritten.lower() for w in context_words)
-    
     if not has_context:
         rewritten = f"{rewritten} {CONTEXT_SUFFIX}"
-    
+
+    # ── Step 4: Hard-cap at 380 characters (Tavily limit is 400) ──
+    if len(rewritten) > 380:
+        rewritten = rewritten[:377].rsplit(" ", 1)[0] + "..."
+
     return rewritten
 
 

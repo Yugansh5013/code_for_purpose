@@ -92,20 +92,26 @@ class PineconeClient:
         namespace: str,
         query_text: str,
         top_k: int = 3,
+        filter: dict = None,
     ) -> list[dict]:
         """
         Dense-only search using integrated inference.
         The index handles embedding server-side — just pass raw text.
         
         Used for Confluence/document search (Phase 2).
+        Supports optional metadata filtering for RBAC.
         """
         try:
             index = self.pc.Index(index_name)
             
-            results = index.search(
-                namespace=namespace,
-                query={"inputs": {"text": query_text}, "top_k": top_k},
-            )
+            search_params = {
+                "namespace": namespace,
+                "query": {"inputs": {"text": query_text}, "top_k": top_k},
+            }
+            if filter:
+                search_params["query"]["filter"] = filter
+            
+            results = index.search(**search_params)
             
             matches = []
             if hasattr(results, 'result') and hasattr(results.result, 'hits'):
