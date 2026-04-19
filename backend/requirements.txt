@@ -25,7 +25,7 @@ snowflake-connector-python>=3.10.0
 sqlglot>=25.0.0
 
 # E2B sandbox
-e2b-code-interpreter==1.0.0
+e2b-code-interpreter>=1.0.3
 
 # Web search (Tavily)
 tavily-python>=0.3.0

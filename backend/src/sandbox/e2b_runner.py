@@ -55,11 +55,12 @@ async def run_visualization(
     sandbox = None
     try:
         # ── 1. Create sandbox ────────────────────────────────
+        #   Only pass api_key. The timeout param and sandbox_domain
+        #   are handled internally by the SDK version installed.
         logger.info("E2B: Creating sandbox...")
-        sandbox = await AsyncSandbox.create(
-            timeout=SANDBOX_TIMEOUT,
-            api_key=e2b_api_key,
-        )
+        import os
+        os.environ["E2B_API_KEY"] = e2b_api_key
+        sandbox = await AsyncSandbox.create()
         logger.info(f"E2B: Sandbox created (id={sandbox.sandbox_id})")
 
         # ── 2. Upload CSV data ───────────────────────────────
