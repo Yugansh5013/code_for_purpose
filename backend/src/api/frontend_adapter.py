@@ -805,7 +805,7 @@ def create_adapter_routes(graph, groq_pool):
         Maps the backend's /health service statuses to the frontend's
         expected IntegrationStatus shape.
         """
-        from src.main import _snowflake, _pinecone, _confluence_client, _salesforce, _groq_pool
+        from src.main import _db, _pinecone, _confluence_client, _salesforce, _groq_pool
         from src.config.settings import get_settings
 
         settings = get_settings()
@@ -817,9 +817,9 @@ def create_adapter_routes(graph, groq_pool):
                 return "connecting"
             return "error"
 
-        def _sf_conn_status():
+        def _db_conn_status():
             try:
-                if _snowflake and _snowflake.test_connection():
+                if _db and _db.test_connection():
                     return "live"
                 return "error"
             except Exception:
@@ -834,7 +834,7 @@ def create_adapter_routes(graph, groq_pool):
             return "live" if settings.tavily_api_key else "error"
 
         return {
-            "snowflake": _sf_conn_status(),
+            "snowflake": _db_conn_status(),
             "confluence": _conf_status(),
             "salesforce": _sf_status(),
             "tavily": _tavily_status(),

@@ -303,9 +303,9 @@ async def health_check():
     services = {}
     
     try:
-        services["snowflake"] = "ok" if _snowflake and _snowflake.test_connection() else "disconnected"
+        services["database"] = "ok" if _db and _db.test_connection() else "disconnected"
     except Exception:
-        services["snowflake"] = "error"
+        services["database"] = "error"
     
     try:
         settings = get_settings()
