@@ -383,6 +383,18 @@ async def root():
     }
 
 
+@app.api_route("/ping", methods=["GET", "HEAD"])
+async def ping():
+    """
+    Lightweight keep-alive endpoint for UptimeRobot.
+
+    Supports both GET and HEAD requests (UptimeRobot defaults to HEAD).
+    Does NOT run any heavy service checks — just confirms the process is alive
+    so Render's free-tier doesn't put the container to sleep.
+    """
+    return {"status": "ok"}
+
+
 @app.post("/confluence/sync")
 async def confluence_sync():
     """
