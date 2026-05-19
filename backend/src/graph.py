@@ -25,7 +25,7 @@ def build_graph(
     groq_pool: Any,
     schema_store: Any,
     examples_store: Any,
-    snowflake_connector: Any,
+    db_connector: Any,
     pinecone_client: Any = None,
     dense_index: str = "omnidata-dense",
     tavily_api_key: str = "",
@@ -54,7 +54,7 @@ def build_graph(
         groq_pool=groq_pool,
         schema_store=schema_store,
         examples_store=examples_store,
-        snowflake_connector=snowflake_connector,
+        snowflake_connector=db_connector,
         e2b_api_key=e2b_api_key,
     )
     bound_branch_rag = partial(

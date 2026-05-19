@@ -18,8 +18,8 @@ groq>=0.11.0
 # Vector database
 pinecone>=5.0.0
 
-# Snowflake
-snowflake-connector-python>=3.10.0
+# PostgreSQL (Neon) — replaces Snowflake (trial expired 2026-05-19)
+psycopg2-binary>=2.9.9
 
 # SQL validation
 sqlglot>=25.0.0

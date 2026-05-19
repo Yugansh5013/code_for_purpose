@@ -1,5 +1,5 @@
 """
-OmniData — Branch 1: Snowflake SQL Pipeline
+OmniData — Branch 1: SQL Pipeline
 
 Unified pipeline that auto-detects query complexity:
 - Simple queries → 1 SQL, 1 chart (Chart.js fast path)
@@ -7,6 +7,10 @@ Unified pipeline that auto-detects query complexity:
   then optionally routes through E2B sandbox for rich Plotly visualization
 
 No separate "analyze" mode. The pipeline decides what the question needs.
+
+⚠️ Migration note: Originally used Snowflake SQL syntax (OMNIDATA_DB.SCHEMA.TABLE).
+Migrated to standard PostgreSQL / Neon on 2026-05-19 because the Snowflake
+free trial expired. Tables are now in the public schema (lowercase snake_case).
 """
 
 import io
@@ -79,26 +83,28 @@ Then, based on the ACTUAL columns and their non-null counts, decide:
 11. Also try: `fig.write_image('/home/user/output.png', width=800, height=500)` wrapped in try/except.
 12. Output ONLY valid Python code. No explanations, no markdown."""
 
-SQL_SYSTEM_PROMPT = """You are an expert Snowflake SQL query generator for Aura Retail's data warehouse.
+SQL_SYSTEM_PROMPT = """You are an expert PostgreSQL query generator for Aura Retail's data warehouse (hosted on Neon).
 
-## Database: OMNIDATA_DB
+## Database: neondb (PostgreSQL, public schema)
 ## Available Tables and Schemas:
 {schema_context}
 
 ## Rules:
-1. Generate ONLY a valid Snowflake SQL SELECT query — no explanations, no markdown.
-2. Use fully qualified table names: OMNIDATA_DB.SCHEMA.TABLE
+1. Generate ONLY a valid standard PostgreSQL SELECT query — no explanations, no markdown.
+2. All tables are in the public schema. Use simple table names: aura_sales, product_catalogue, return_events, customer_metrics.
 3. Always include appropriate WHERE clauses for date filtering when dates are mentioned.
 4. Use DATE_TRUNC('month', date_col) for monthly aggregations.
 5. Always add ORDER BY for sorted results.
 6. Use ROUND() for decimal values.
 7. For percentage calculations, multiply by 100.
-8. JOIN PRODUCT_CATALOGUE on PRODUCT_SKU when product names are needed.
-9. CHURN_RATE is stored as a decimal (0.05 = 5%), multiply by 100 for display.
-10. Return RATE is stored as a decimal, multiply by 100 for display.
+8. JOIN product_catalogue ON product_sku when product names are needed.
+9. churn_rate is stored as a decimal (0.05 = 5%), multiply by 100 for display.
+10. return_rate is stored as a decimal, multiply by 100 for display.
 11. Output ONLY the SQL query, nothing else. No ```sql``` markers.
-12. CRITICAL: For ALL string/text column comparisons (product names, categories, regions, etc.) ALWAYS use ILIKE instead of = for case-insensitive matching. Example: PRODUCT_NAME ILIKE '%AuraSound Pro%' instead of PRODUCT_NAME = 'AuraSound Pro'. This prevents missing data due to case sensitivity in the database.
-13. When filtering by product name from user input, always use ILIKE with % wildcards on both sides to match partial names.
+12. CRITICAL: For ALL string/text column comparisons ALWAYS use ILIKE instead of = for case-insensitive matching.
+    Example: product_name ILIKE '%AuraSound Pro%' instead of product_name = 'AuraSound Pro'.
+13. When filtering by product name from user input, always use ILIKE with % wildcards on both sides.
+14. Column names are lowercase snake_case (e.g. geo_territory, actual_sales, product_sku).
 
 ## Relevant Examples:
 {examples_context}
@@ -171,7 +177,7 @@ async def branch_sql_node(
             "data": demo_rows,
             "raw_query": hardcoded_sql,
             "source": "snowflake",
-            "source_label": "Snowflake Data Warehouse",
+            "source_label": "Neon PostgreSQL",
             "sql": hardcoded_sql,
             "columns": ["SUM(ACTUAL_SALES)"],
             "rows": demo_rows,
@@ -353,7 +359,7 @@ async def branch_sql_node(
             "data": primary.get("rows", []),
             "raw_query": primary.get("sql", ""),
             "source": "snowflake",
-            "source_label": "Snowflake Data Warehouse",
+            "source_label": "Neon PostgreSQL",
             "sql": primary.get("sql", ""),
             "columns": primary.get("columns", []),
             "rows": primary.get("rows", []),

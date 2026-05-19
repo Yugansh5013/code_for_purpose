@@ -18,7 +18,7 @@ from src.config.settings import get_settings
 from src.config.groq_keys import GroqKeyPool
 from src.vector.pinecone_client import PineconeClient
 from src.vector.schema_store import SchemaStore, ExamplesStore
-from src.warehouse.connector import SnowflakeConnector
+from src.warehouse.neon_connector import NeonConnector
 from src.connectors.confluence_client import ConfluenceClient
 from src.connectors.salesforce_connector import SalesforceConnector
 from src.clarification.metric_resolver import get_all_metrics_for_glossary
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # ── Global state ─────────────────────────────────────────
 _graph = None
 _groq_pool = None
-_snowflake = None
+_db = None          # NeonConnector (was _snowflake / SnowflakeConnector)
 _pinecone = None
 _confluence_client = None
 _salesforce = None
@@ -45,7 +45,7 @@ _salesforce = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize all clients at startup, clean up at shutdown."""
-    global _graph, _groq_pool, _snowflake, _pinecone, _confluence_client, _salesforce
+    global _graph, _groq_pool, _db, _pinecone, _confluence_client, _salesforce
     
     settings = get_settings()
     logger.info("Starting OmniData backend...")
@@ -56,13 +56,9 @@ async def lifespan(app: FastAPI):
     
     _pinecone = PineconeClient(settings.pinecone_api_key)
     
-    _snowflake = SnowflakeConnector(
-        account=settings.snowflake_account,
-        user=settings.snowflake_user,
-        password=settings.snowflake_password,
-        warehouse=settings.snowflake_warehouse,
-        database=settings.snowflake_database,
-    )
+    # ⚠️ Neon replaces Snowflake (trial expired 2026-05-19)
+    _db = NeonConnector(database_url=settings.database_url)
+    logger.info("Neon (PostgreSQL) connector initialized")
     
     # Build vector stores
     schema_store = SchemaStore(_pinecone, settings.pinecone_hybrid_index)
@@ -89,9 +85,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Salesforce connection failed: {e} — using vector fallback")
     
-    # Wire Snowflake connector into semantic validator for jargon overrides
-    from src.validation.semantic_validator import set_snowflake_connector, sync_from_snowflake
-    set_snowflake_connector(_snowflake)
+    # Wire database connector into semantic validator for jargon overrides
+    from src.validation.semantic_validator import set_db_connector, sync_from_snowflake
+    set_db_connector(_db)
     
     # Auto-sync metric dictionary + jargon overrides from Snowflake at startup
     try:
@@ -108,7 +104,7 @@ async def lifespan(app: FastAPI):
         groq_pool=_groq_pool,
         schema_store=schema_store,
         examples_store=examples_store,
-        snowflake_connector=_snowflake,
+        db_connector=_db,
         pinecone_client=_pinecone,
         dense_index=settings.pinecone_dense_index,
         tavily_api_key=settings.tavily_api_key,
@@ -125,8 +121,8 @@ async def lifespan(app: FastAPI):
     yield
     
     # Cleanup
-    if _snowflake:
-        _snowflake.close()
+    if _db:
+        _db.close()
     logger.info("OmniData backend shutdown complete")
 
 

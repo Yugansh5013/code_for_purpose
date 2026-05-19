@@ -23,12 +23,11 @@ class Settings(BaseSettings):
     pinecone_hybrid_index: str = "omnidata-hybrid"
     pinecone_dense_index: str = "omnidata-dense"
 
-    # ── Snowflake ─────────────────────────────────────────
-    snowflake_account: str
-    snowflake_user: str
-    snowflake_password: str
-    snowflake_warehouse: str = "COMPUTE_WH"
-    snowflake_database: str = "OMNIDATA_DB"
+    # ── Database ─────────────────────────────────────────────
+    # ⚠️ Migration note: Originally used Snowflake. Migrated to Neon (PostgreSQL)
+    # on 2026-05-19 because the Snowflake 30-day free trial expired.
+    # Original Snowflake seed script preserved at seed/snowflake_seed.py.
+    database_url: str  # Neon PostgreSQL connection string
 
     # ── E2B ───────────────────────────────────────────────
     e2b_api_key: str = ""

@@ -14,8 +14,12 @@ The substitution log is returned to the frontend for the "Language Audit"
 transparency panel.
 
 Persistence:
-  - Primary: Snowflake SYSTEM.JARGON_OVERRIDES table
-  - Fallback: local jargon_overrides.yaml (for offline dev / Snowflake outage)
+  - Primary: Neon PostgreSQL jargon_overrides table
+  - Fallback: local jargon_overrides.yaml (for offline dev / DB outage)
+
+  ⚠️ Migration note: Originally backed by Snowflake SYSTEM.JARGON_OVERRIDES.
+    Migrated to Neon (PostgreSQL) on 2026-05-19 because the Snowflake free
+    trial expired. API is identical; only the connector type changed.
 """
 
 import json
@@ -34,16 +38,16 @@ logger = logging.getLogger(__name__)
 
 VALIDATOR_MODEL = "llama-3.1-8b-instant"
 
-# ── Module-level Snowflake connector reference ───────────────
-_snowflake_connector = None
+# ── Module-level database connector reference ──────────────────
+_db_connector = None
 _last_sync_time: Optional[datetime] = None
 
 
-def set_snowflake_connector(connector):
-    """Called once at startup from main.py to wire the Snowflake connection."""
-    global _snowflake_connector
-    _snowflake_connector = connector
-    logger.info("Semantic validator: Snowflake connector wired")
+def set_db_connector(connector):
+    """Called once at startup from main.py to wire the database connection."""
+    global _db_connector
+    _db_connector = connector
+    logger.info("Semantic validator: DB connector wired")
 
 
 # ── Jargon Overrides Loader ──────────────────────────────────
@@ -61,15 +65,15 @@ def _load_overrides() -> dict[str, dict]:
     if _overrides_cache is not None:
         return _overrides_cache
 
-    # Try Snowflake first
-    if _snowflake_connector:
+    # Try database connector first
+    if _db_connector:
         try:
-            _overrides_cache = _snowflake_connector.get_jargon_overrides()
+            _overrides_cache = _db_connector.get_jargon_overrides()
             _last_sync_time = datetime.now(timezone.utc)
-            logger.info(f"Loaded {len(_overrides_cache)} jargon overrides from Snowflake")
+            logger.info(f"Loaded {len(_overrides_cache)} jargon overrides from Neon")
             return _overrides_cache
         except Exception as e:
-            logger.warning(f"Snowflake overrides fetch failed, falling back to YAML: {e}")
+            logger.warning(f"Neon overrides fetch failed, falling back to YAML: {e}")
 
     # Fallback to YAML
     if not _OVERRIDES_PATH.exists():
