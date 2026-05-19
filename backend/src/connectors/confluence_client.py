@@ -7,7 +7,7 @@ to local demo data when credentials are not configured.
 
 Integration Modes:
     1. LIVE MODE  — connects to real Confluence instance via REST API
-    2. DEMO MODE  — loads from local seed data (for development/hackathon)
+    2. DEMO MODE  — loads from local seed data (for development / offline use)
 
 The mode is auto-detected from environment configuration.
 

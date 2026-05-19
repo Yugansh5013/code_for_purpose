@@ -21,9 +21,9 @@ RUN pip install --upgrade pip && \
 # Copy project
 COPY . .
 
-# Expose port (Cloud Run sets PORT env var)
-ENV PORT 8000
-EXPOSE $PORT
+# Render uses PORT env var (defaults to 10000)
+# For local Docker: docker run -p 8000:8000 -e PORT=8000 ...
+EXPOSE ${PORT:-10000}
 
 # Command to run the application
-CMD uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8080}
+CMD uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-10000}

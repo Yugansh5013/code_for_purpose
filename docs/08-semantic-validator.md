@@ -105,7 +105,7 @@ Every replacement is logged and returned to the frontend:
 }
 ```
 
-This log is displayed in the **Language tab** of the Transparency Panel, giving judges and users full visibility into what was changed and why.
+This log is displayed in the **Language tab** of the Transparency Panel, giving users full visibility into what was changed and why.
 
 ## Conditional Execution
 

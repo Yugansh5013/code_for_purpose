@@ -1,6 +1,8 @@
 # OmniData — Product Requirements Document (v6.0)
-**Hackathon:** NatWest Group — Code for Purpose: Talk to Data
-**Status:** Final — GCP + Pinecone + Full Seed Data Specification
+
+> **⚠️ Historical Document:** This PRD was written during the original hackathon development phase. Some references to judges, hackathon rules, and submission constraints are preserved for context. The current project has evolved beyond this spec — see `README.md` and `docs/` for the latest architecture.
+
+**Status:** Reference — Original Design Specification
 **Last Updated:** April 2026
 
 ---

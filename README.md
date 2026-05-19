@@ -1,20 +1,18 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Hackathon-NatWest_Code_for_Purpose-003087?style=for-the-badge" alt="NatWest Code for Purpose" />
-  <img src="https://img.shields.io/badge/Theme-Talk_to_Data-00A86B?style=for-the-badge" alt="Talk to Data" />
-  <img src="https://img.shields.io/badge/Status-Deployed-brightgreen?style=for-the-badge" alt="Deployed" />
+  <img src="https://img.shields.io/badge/AI-Multi--Agent_Platform-6366f1?style=for-the-badge" alt="Multi-Agent AI" />
+  <img src="https://img.shields.io/badge/Stack-LangGraph_+_Snowflake_+_Pinecone-00A86B?style=for-the-badge" alt="Tech Stack" />
+  <img src="https://img.shields.io/badge/Status-Live-brightgreen?style=for-the-badge" alt="Live" />
 </p>
 
 # OmniData — AI Data Intelligence Platform
 
 > **Talk to your enterprise data in plain English.** OmniData is a multi-agent AI system that lets business users ask natural-language questions and receive accurate, verifiable, jargon-free insights — no SQL knowledge required.
 
-🌐 **Live Demo:** [https://code-for-purpose-frontend-635515199846.europe-west1.run.app/](https://code-for-purpose-frontend-635515199846.europe-west1.run.app/)
-
 ---
 
 ## Overview
 
-OmniData is an enterprise-grade, multi-agent AI platform built for the **NatWest Code for Purpose: Talk to Data** hackathon. It democratises data access by allowing business users to ask questions in natural language such as *"Why did revenue drop in the South last quarter?"* and receive comprehensive, cross-referenced answers drawn from multiple enterprise data sources simultaneously. The system is designed for data analysts, business managers, and non-technical stakeholders who need quick, trustworthy insights without writing SQL or navigating complex dashboards.
+OmniData is an enterprise-grade, multi-agent AI platform that democratises data access by allowing business users to ask questions in natural language — such as *"Why did revenue drop in the South last quarter?"* — and receive comprehensive, cross-referenced answers drawn from multiple enterprise data sources simultaneously. The system is designed for data analysts, business managers, and non-technical stakeholders who need quick, trustworthy insights without writing SQL or navigating complex dashboards.
 
 The system connects to **Snowflake** for structured warehouse data, uses **Pinecone** serverless vector indexes to power schema retrieval and document search, and **Tavily** for live market intelligence. A **LangGraph** orchestration layer routes each query through the optimal combination of data branches, synthesises the results, and applies a three-layer semantic validator to strip out technical jargon — ensuring every answer is both accurate and human-readable.
 
@@ -71,7 +69,7 @@ These narratives are designed so that a single complex query, such as *"Why did 
 
 - **Three-Layer Jargon Detection:** (1) Pattern-based regex detection catches `__c` fields, ALL_CAPS columns, and SQL fragments. (2) A known jargon registry loaded from `metric_dictionary.yaml` and `jargon_overrides.yaml`. (3) LLM-powered rewriting via Llama 3.3 8B naturally rephrases any remaining technical terms.
 - **Configurable Overrides:** Administrators can add custom term replacements to `jargon_overrides.yaml` without touching code.
-- **Substitution Audit Log:** Every jargon replacement is logged and exposed in the Language tab so judges and users can see exactly what was changed and why.
+- **Substitution Audit Log:** Every jargon replacement is logged and exposed in the Language tab so users can see exactly what was changed and why.
 
 ### Real-Time Streaming UI
 
@@ -114,7 +112,7 @@ The dictionary currently defines **12 metrics** with **93 natural-language alias
 3. If the term matches an ambiguous metric (like "growth"), the UI presents a clarification card with human-readable options.
 4. The Semantic Validator uses the same dictionary to strip jargon from the final response — replacing `ACTUAL_SALES` with "Total Sales" and `CHURN_RATE` with "Customer Churn Rate."
 
-This ensures consistent language across every user interaction and directly addresses the hackathon's Learning Outcome #2: *"Why shared definitions for key business terms and metrics are important."*
+This ensures consistent language across every user interaction — embodying the principle that shared definitions for key business terms and metrics are essential for trustworthy AI.
 
 ---
 
@@ -124,7 +122,7 @@ The Transparency Dashboard is OmniData's core trust feature. It provides full vi
 
 | Tab | What It Shows | When It Appears |
 |-----|--------------|-----------------|
-| **SQL** | The exact SQL query that was generated and executed, with syntax highlighting. Judges can copy and run the query directly against Snowflake to verify results. | Always (for SQL queries) |
+| **SQL** | The exact SQL query that was generated and executed, with syntax highlighting. Users can copy and run the query directly against Snowflake to verify results. | Always (for SQL queries) |
 | **DATA** | The raw data rows returned from Snowflake, presented in a scrollable table with all columns visible. | Always (for SQL queries) |
 | **DOCS** | Retrieved Confluence/RAG documents with title, space key, relevance score, and text excerpt. Shows exactly which documents influenced the answer. | When RAG branch is activated |
 | **WEB** | External web search results from Tavily with source URLs, content previews, and relevance scores. | When Web branch is activated |
@@ -283,7 +281,7 @@ flowchart TD
 | **Vector Database** | Pinecone Serverless (2 indexes, 4 namespaces) | Schema RAG, document retrieval, CRM fallback |
 | **Data Warehouse** | Snowflake (4 tables, 4 schemas) | Structured business data (sales, returns, customers, products) |
 | **Web Search** | Tavily API | Real-time external market intelligence |
-| **Deployment** | Google Cloud Run, Docker | Serverless container hosting |
+| **Deployment** | Render (backend) + Vercel (frontend) | Docker container + serverless edge |
 | **Code Sandbox** | E2B | Isolated code execution environment |
 
 ---
@@ -325,8 +323,7 @@ flowchart TD
 
 ## Install & Run
 
-> 🌐 **You can see the full working project live here without any setup:**
-> [https://code-for-purpose-frontend-635515199846.europe-west1.run.app/](https://code-for-purpose-frontend-635515199846.europe-west1.run.app/)
+> 💡 **Prefer to skip local setup?** Deploy the backend to Render and the frontend to Vercel — see [Deployment](#deployment) below.
 
 If you want to run OmniData locally, follow these steps:
 
@@ -506,7 +503,7 @@ The frontend will be available at `http://localhost:3000`.
 ## Project Structure
 
 ```
-code_for_purpose/
+omnidata/
 ├── backend/
 │   ├── src/
 │   │   ├── api/                  # Frontend adapter (SSE streaming, route translation)
@@ -543,12 +540,71 @@ code_for_purpose/
 │   ├── lib/
 │   │   ├── store.ts              # Zustand global state
 │   │   └── types.ts              # TypeScript type definitions
-│   ├── package.json
-│   └── Dockerfile
-├── cloudbuild.yaml               # GCP Cloud Build deployment pipeline
+│   └── package.json
+├── docs/                         # Architecture documentation with Mermaid diagrams
 ├── .env.example                  # Complete environment template
 └── prd.md                        # Full Product Requirements Document
 ```
+
+---
+
+## Deployment
+
+OmniData uses **Render** for the backend (Docker) and **Vercel** for the frontend (Next.js).
+
+### 1. Backend — Render
+
+1. Create a **New Web Service** on [Render](https://render.com) and connect your GitHub repo.
+2. Set **Root Directory** to `backend`. Render will auto-detect the Dockerfile.
+3. Leave Build/Start commands blank — the Dockerfile handles everything.
+4. Add all required environment variables in the Render dashboard:
+
+   | Variable | Example |
+   |----------|---------|
+   | `GROQ_API_KEY_1` | `gsk_...` |
+   | `GROQ_API_KEY_2` | `gsk_...` |
+   | `GROQ_API_KEY_3` | `gsk_...` |
+   | `PINECONE_API_KEY` | `pcsk_...` |
+   | `PINECONE_HYBRID_INDEX` | `omnidata-hybrid` |
+   | `PINECONE_DENSE_INDEX` | `omnidata-dense` |
+   | `SNOWFLAKE_ACCOUNT` | `abc12345.us-east-1` |
+   | `SNOWFLAKE_USER` | `your_username` |
+   | `SNOWFLAKE_PASSWORD` | `your_password` |
+   | `SNOWFLAKE_WAREHOUSE` | `COMPUTE_WH` |
+   | `SNOWFLAKE_DATABASE` | `OMNIDATA_DB` |
+   | `E2B_API_KEY` | `e2b_...` |
+   | `TAVILY_API_KEY` | `tvly_...` |
+   | `CORS_ORIGINS` | `https://your-app.vercel.app` |
+
+5. Deploy. Render will assign a URL like `https://your-app.onrender.com`.
+
+### 2. Keep-Alive — UptimeRobot
+
+Render free-tier containers sleep after 15 minutes of inactivity. Use [UptimeRobot](https://uptimerobot.com) to prevent this:
+
+- **Monitor Type:** HTTP(s)
+- **URL:** `https://your-app.onrender.com/` (root endpoint — **not** `/health`)
+- **Interval:** 14 minutes
+
+> ⚠️ Do **not** use `/health` — it pings Snowflake, Pinecone, Groq, and Tavily on every call, burning your free-tier quotas.
+
+### 3. Frontend — Vercel
+
+1. Import your repository on [Vercel](https://vercel.com).
+2. Set **Framework Preset** to `Next.js` and **Root Directory** to `frontend`.
+3. Add the environment variable:
+   - `NEXT_PUBLIC_API_URL` = `https://your-app.onrender.com` (no trailing slash)
+4. Deploy. Vercel will build and assign your live URL.
+
+### 4. Post-Deployment — Lock Down CORS
+
+Once your Vercel frontend is live, update the `CORS_ORIGINS` env var in Render to your exact Vercel URL:
+
+```
+CORS_ORIGINS=https://your-app.vercel.app
+```
+
+This prevents unauthorized sites from consuming your LLM and vector store credits.
 
 ---
 
@@ -573,24 +629,12 @@ code_for_purpose/
 
 ---
 
-## License & DCO Compliance
+## License
 
 This project is licensed under the **Apache License 2.0** — see the [LICENSE](./LICENSE) file for full terms.
-
-All commits to this repository are signed off in compliance with the [Developer Certificate of Origin (DCO)](https://developercertificate.org/) using the following format:
-
-```
-Signed-off-by: Yugansh Sharma <yugansh5013.s@gmail.com>
-```
-
-A single email address has been used throughout all commits. To verify DCO compliance:
-
-```bash
-git log --format='%ae %s' | head -20
-```
 
 ---
 
 <p align="center">
-  Built with ❤️ for the <strong>NatWest Code for Purpose</strong> hackathon
+  Built with ❤️ by <strong>Yugansh Sharma</strong>
 </p>
