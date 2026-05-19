@@ -56,14 +56,11 @@ class PineconeClient:
         try:
             index = self.pc.Index(index_name)
             
-            search_params = {
-                "namespace": namespace,
-                "query": {"inputs": {"text": query_text}, "top_k": top_k},
-            }
+            query = {"inputs": {"text": query_text}, "top_k": top_k}
             if filter:
-                search_params["query"]["filter"] = filter
+                query["filter"] = filter
             
-            results = index.search(**search_params)
+            results = index.search(namespace=namespace, query=query)
             
             matches = []
             if hasattr(results, 'result') and hasattr(results.result, 'hits'):
@@ -104,14 +101,11 @@ class PineconeClient:
         try:
             index = self.pc.Index(index_name)
             
-            search_params = {
-                "namespace": namespace,
-                "query": {"inputs": {"text": query_text}, "top_k": top_k},
-            }
+            query = {"inputs": {"text": query_text}, "top_k": top_k}
             if filter:
-                search_params["query"]["filter"] = filter
+                query["filter"] = filter
             
-            results = index.search(**search_params)
+            results = index.search(namespace=namespace, query=query)
             
             matches = []
             if hasattr(results, 'result') and hasattr(results.result, 'hits'):
