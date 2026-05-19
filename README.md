@@ -286,38 +286,142 @@ flowchart TD
 
 ---
 
-## Usage Examples
+## Example Queries to Try
 
-### Example 1: Simple SQL Query
+Below is a curated set of queries you can ask OmniData, organised by complexity and data source. These are designed to showcase every capability of the platform — from simple lookups to complex multi-source investigations that generate charts.
 
-**Input:**
-> "What were total sales last quarter?"
-
-**What happens:** Intent router activates SQL-only branch → temporal resolver converts "last quarter" to `Q1 2026 (Jan 1 – Mar 31)` → SQL generated and executed against Snowflake → bar chart rendered by region.
-
-**Output:** A narrative answer like *"Total sales for Q1 2026 were £4.2M across all regions, with North leading at £1.5M driven by the AuraSound Pro launch."* accompanied by a bar chart and the exact SQL visible in the Transparency Dashboard's SQL tab.
+> 💡 **Tip:** Copy-paste any of these directly into the chat input. The system handles temporal resolution, metric mapping, and source routing automatically.
 
 ---
 
-### Example 2: Hybrid Multi-Source Query
+### 🟢 Simple — SQL Only (Single Table, Direct Answer)
 
-**Input:**
-> "Why did South region revenue drop and what does our policy say about budget reallocation?"
+These queries hit a single database table and return a straightforward answer. Great for getting started.
 
-**What happens:** Intent router activates SQL + RAG branches → SQL pulls revenue data showing the 28% South drop → RAG retrieves the budget reallocation memo from Pinecone's document index → synthesis merges both into a unified narrative.
-
-**Output:** *"South region revenue declined 28% in February 2026 due to a marketing budget cut approved in January. According to the 'Regional Budget Reallocation' policy document, budget redistribution requires quarterly board approval..."*
+| # | Query | What It Tests |
+|---|-------|---------------|
+| 1 | `What were total sales last quarter?` | Temporal resolution ("last quarter" → Q1 2026), basic aggregation |
+| 2 | `How many units did we sell in March?` | Simple `SUM` with date filter |
+| 3 | `Show me revenue by region` | `GROUP BY` region, generates a **bar chart** |
+| 4 | `What is the average order value by customer segment?` | Aggregation from `CUSTOMER_METRICS` |
+| 5 | `List all active products with their prices` | Direct query on `PRODUCT_CATALOGUE` |
+| 6 | `What products were launched in 2026?` | Date filter on product launch dates |
+| 7 | `How many active customers do we have by region?` | `CUSTOMER_METRICS` with `GROUP BY` |
+| 8 | `What was total ad spend by region last quarter?` | Marketing spend aggregation |
 
 ---
 
-### Example 3: Ambiguous Query with Clarification
+### 🟡 Medium — SQL with Joins, Trends & Charts
 
-**Input:**
-> "Show me growth"
+These queries require table joins, time-series analysis, or produce rich visualizations.
 
-**What happens:** Metric resolver detects that "growth" is ambiguous (could mean revenue growth, unit growth, or customer growth) → clarification card presented.
+| # | Query | What It Tests |
+|---|-------|---------------|
+| 9 | `Show me the monthly revenue trend for the North region` | Time-series `GROUP BY` month, generates a **line chart** |
+| 10 | `Which were the top 5 products by revenue last month?` | `JOIN` between `AURA_SALES` and `PRODUCT_CATALOGUE`, `LIMIT 5` |
+| 11 | `What is the revenue split by sales channel this year?` | Percentage-of-total calculation with window function |
+| 12 | `Compare February and March revenue for the South region` | Month-over-month comparison, generates **grouped bar chart** |
+| 13 | `What is the return rate for online electronics this year?` | `RETURN_EVENTS` with channel + category filter |
+| 14 | `Show me return reasons breakdown` | `GROUP BY` return reason with percentage, generates **pie/bar chart** |
+| 15 | `What is our marketing ROI by region?` | Calculated metric (Revenue / Ad Spend), multi-column output |
+| 16 | `Revenue comparison: online vs retail vs partner for each region` | 2D grouped aggregation, generates **grouped bar chart** |
+| 17 | `What is the SMB churn trend over time?` | Segment-filtered time-series from `CUSTOMER_METRICS` |
+| 18 | `How is the Partner channel trending?` | Channel-filtered monthly trend with regional breakdown |
 
-**Output:** A clickable card asking *"Which metric do you mean?"* with options like "Total Sales in GBP," "Units Sold," "New Customers." The user clicks one and the query proceeds with the resolved metric.
+---
+
+### 🔴 Complex — Multi-Table, Multi-Dimensional Analysis
+
+These queries push the SQL branch harder — requiring decomposition, multi-table joins, and advanced aggregations.
+
+| # | Query | What It Tests |
+|---|-------|---------------|
+| 19 | `Which region has the highest churn rate and what is their revenue trend?` | Query decomposition: churn query + revenue trend, **multi-chart output** |
+| 20 | `Show me top selling products by name with revenue and units sold` | `JOIN` + multi-column aggregation |
+| 21 | `What is the average order value by region and customer segment?` | 2D `GROUP BY` on `CUSTOMER_METRICS` |
+| 22 | `How does the repeat purchase rate compare across enterprise customers by region?` | Segment-filtered metric with regional breakdown |
+| 23 | `What is the correlation between ad spend and revenue by region?` | Two metrics side-by-side, ROI analysis |
+| 24 | `Break down returns by product, region, and reason for Q1 2026` | 3D aggregation with temporal filter |
+
+---
+
+### 📄 Document / RAG Only (Vector Search — No SQL)
+
+These queries skip the database entirely and retrieve answers from internal documents indexed in Pinecone.
+
+| # | Query | What It Retrieves |
+|---|-------|-------------------|
+| 25 | `What is our returns policy?` | **Customer Refund and Returns Policy v4.2** |
+| 26 | `Tell me about the AuraSound Pro launch` | **AuraSound Pro Product Launch Brief** |
+| 27 | `What does the SMB retention playbook recommend?` | **Customer Success — SMB Retention Playbook** |
+| 28 | `What was discussed in the Q1 board summary?` | **Q1 2026 Commercial Strategy — Board Summary** |
+| 29 | `What changed in the partner channel pricing?` | **Partner Channel Price Adjustment — February 2026** |
+| 30 | `How are our metrics defined?` | **Data Glossary — Aura Retail Metrics Definitions** |
+
+---
+
+### 🔀 Hybrid — SQL + Documents (Multi-Source Synthesis)
+
+These are the showcase queries. They trigger **multiple branches simultaneously** — pulling numbers from the database AND context from internal documents, then synthesising everything into a unified answer.
+
+| # | Query | Branches Activated | Why It's Interesting |
+|---|-------|--------------------|----------------------|
+| 31 | `Why did South region revenue drop and what does our policy say about budget reallocation?` | SQL + RAG | Pulls the 28% revenue drop from database + retrieves the **Regional Marketing Budget Policy** |
+| 32 | `Why are returns spiking for AuraSound Pro and what is our returns policy?` | SQL + RAG | Gets return rate data (18% in Jan) + retrieves the **Returns Policy** document |
+| 33 | `What drove North region growth and what was the product launch strategy?` | SQL + RAG | Revenue uplift data + **AuraSound Pro Launch Brief** |
+| 34 | `Why is SMB churn increasing and what retention actions are recommended?` | SQL + RAG | Churn data (14% in South, March) + **SMB Retention Playbook** |
+| 35 | `How did the partner channel price change affect revenue?` | SQL + RAG | Partner channel revenue trend + **Partner Channel Price Adjustment** memo |
+
+---
+
+### 🌐 Web Search (Live External Intelligence)
+
+These queries trigger the Tavily web search branch for real-time market context.
+
+| # | Query | What It Does |
+|---|-------|--------------|
+| 36 | `What are the latest trends in UK retail electronics?` | Live web search for market intelligence |
+| 37 | `How does our return rate compare to industry benchmarks?` | SQL (our return rate) + Web (industry averages) |
+| 38 | `What are competitors doing in the headphone market?` | Web-only competitive intelligence |
+
+---
+
+### ❓ Ambiguous — Triggers Clarification Flow
+
+These queries are intentionally vague to demonstrate the clarification system.
+
+| # | Query | What Happens |
+|---|-------|--------------|
+| 39 | `Show me growth` | **Ambiguous metric** — system asks: "Do you mean Total Sales, Units Sold, or New Customers?" |
+| 40 | `How are we performing?` | **Ambiguous metric** — "performance" maps to multiple KPIs, clarification card appears |
+| 41 | `What are the numbers?` | **Too vague** — system prompts for specificity |
+
+---
+
+### 🔒 RBAC-Scoped (Role-Based Access Control)
+
+Log in as different roles to see how the same query returns different data. Switch roles from the login page.
+
+| # | Role | Query | What Happens |
+|---|------|-------|--------------|
+| 42 | **CEO** | `Show me revenue by region` | Full data — all 4 regions visible |
+| 43 | **North Region Manager** | `Show me revenue by region` | **Only North data** — other regions filtered out, with a note explaining the restriction |
+| 44 | **South Region Manager** | `Why did revenue drop?` | Scoped to South — shows the 28% February decline without exposing other regions |
+
+---
+
+### 📊 Best Queries for Chart Generation
+
+If you want to see beautiful auto-generated Plotly charts, these queries are optimised for visual output:
+
+| # | Query | Expected Chart Type |
+|---|-------|---------------------|
+| 45 | `Show me revenue by region` | **Bar chart** — 4 bars (North, South, East, West) |
+| 46 | `Monthly revenue trend for all regions` | **Line chart** — multi-series trend over 6 months |
+| 47 | `Revenue split by channel` | **Bar chart** — Online vs Retail vs Partner |
+| 48 | `Compare monthly churn rates across customer segments` | **Grouped bar / line chart** — Enterprise vs SMB vs Consumer |
+| 49 | `Top 10 products by revenue` | **Horizontal bar chart** — product leaderboard |
+| 50 | `Return reasons breakdown` | **Bar chart** — Defective, Changed Mind, Wrong Item, Other |
 
 ---
 
